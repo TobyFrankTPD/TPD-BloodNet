@@ -1,2 +1,2 @@
 # BloodNet
-SIR-like simulation for BloodNet and other detection method analysis
+SIR-like simulation for analyzing effectiveness of various pathogen detection strategies.
