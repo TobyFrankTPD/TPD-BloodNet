@@ -107,7 +107,7 @@ def stochastic_SIRstep(params, pop, t):
     return [S1, A1, I1, Sy1, R1, TotI1, new_acquired, new_infectious]
 
 
-def simulate(pop, params, tmax):
+def simulate(pop, params, tmax, step_type="stochastic"):
     """Carries out a simulation of the model with the stated parameters,
     creating a pop numpy matrix that stores information about the simulated
     population for each time step
@@ -127,12 +127,20 @@ def simulate(pop, params, tmax):
         - R: recovered population
         - TotI: total population with the disease
     tmax:   number of time steps to run the simulation
+    step_type: determines whether steps should be calculated deterministically or stochastically.
+        - Valid inputs: "stochastic" or "deterministic"
 
     RETURNS:
     pop:    updated pop numpy matrix
     """
+    if step_type != "stochastic" or "deterministic":
+        print("Error: You have input an invalid type for step_type. Please input either 'stochastic' or 'deterministic'.")
+        return
     for i in range(1, tmax+1):
-        pop[i] = stochastic_SIRstep(params, pop, i)
+        if step_type == "stochastic":
+            pop[i] = stochastic_SIRstep(params, pop, i)
+        else:
+            pop[i] = deterministic_SIRstep(params, pop, i)
 
     return pop
 
