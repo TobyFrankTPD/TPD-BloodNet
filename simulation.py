@@ -1,12 +1,12 @@
 """Epidemiological model developed for TPD. Simulates an epidemic using an extended
-SIR model with susceptible, acquired, infectious, symptomatic, and recovered buckets.
+SIR model with susceptible, exposed, infectious, symptomatic, and recovered buckets.
 """
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import binom
 
 # TODO:
-#   - Have A[i], I[i], and Sy[i] update right away so inf_tme and symp_time can be 0
+#   - Have E[i], I[i], and Sy[i] update right away so inf_tme and symp_time can be 0
 
 def deterministic_SIRstep(pop, params, t):
     """Calculates one step of the SIR model. Steps are deterministic and fractional.
@@ -20,7 +20,7 @@ def deterministic_SIRstep(pop, params, t):
         - N: population size
     pop:    values for each population bin at the current time step
         - S: susceptible population
-        - A: population with the disease who aren't infectious
+        - E: exposed population with the disease who aren't infectious
         - I: infectious population that isn't symptomatic
         - Sy: symptomatic population
         - R: recovered population
@@ -29,10 +29,10 @@ def deterministic_SIRstep(pop, params, t):
 
     RETURNS
     values for each population bin at the next time step, indexed as follows:
-    Susceptible, Acquired, Infectious, Symptomatic, Recovered, A + I + S (Total Infections)
+    Susceptible, Acquired, Infectious, Symptomatic, Recovered, E + I + S (Total Infections)
     """
     beta, gamma, inf_time, symp_time, N = params
-    S, A, I, Sy, R, TotI = pop[t-1][0:6]
+    S, E, I, Sy, R, TotI = pop[t-1][0:6]
 
     # calculate changes in population bins
     new_acquired = (S*(I+Sy)*beta)/N
@@ -49,14 +49,14 @@ def deterministic_SIRstep(pop, params, t):
 
     # update population bins
     S1 = S-new_acquired
-    A1 = A+new_acquired-new_infectious
+    E1 = E+new_acquired-new_infectious
     I1 = I+new_infectious-new_symptomatic
     Sy1 = Sy+new_symptomatic-new_recovered
     R1 = R+new_recovered
-    TotI1 = A1 + I1 + Sy1
-    return [S1, A1, I1, Sy1, R1, TotI1, new_acquired, new_infectious]
+    TotI1 = E1 + I1 + Sy1
+    return [S1, E1, I1, Sy1, R1, TotI1, new_acquired, new_infectious]
 
-def stochastic_SIRstep(params, pop, t):
+def stochastic_SIRstep(pop, params, t):
     """Calculates one step of the SIR model. Steps are stochastic and discrete
     (no fractional populations)
     
@@ -67,9 +67,9 @@ def stochastic_SIRstep(params, pop, t):
         - inf_time: time it takes for an individual to become infectious
         - sympt_time: time it takes for an infectious individual to become symptomatic
         - N: population size
-    pop:    values for each population bin for every time step
+    pop:    values for each population bin at the current time step
         - S: susceptible population
-        - A: population with the disease who aren't infectious
+        - E: exposed population with the disease who aren't infectious
         - I: infectious population that isn't symptomatic
         - Sy: symptomatic population
         - R: recovered population
@@ -81,7 +81,7 @@ def stochastic_SIRstep(params, pop, t):
     Susceptible, Acquired, Infectious, Symptomatic, Recovered, Total Infections (A + I + Sy)
     """
     beta, gamma, inf_time, symp_time, N = params
-    S, A, I, Sy, R, TotI = pop[t-1][0:6]
+    S, E, I, Sy, R, TotI = pop[t-1][0:6]
 
     # calculate changes in population bins
     p_acquired = (beta*(I+Sy)*S)/(N*N)
@@ -99,12 +99,12 @@ def stochastic_SIRstep(params, pop, t):
 
     # update population bins
     S1 = S-new_acquired
-    A1 = A+new_acquired-new_infectious
+    E1 = E+new_acquired-new_infectious
     I1 = I+new_infectious-new_symptomatic
     Sy1 = Sy+new_symptomatic-new_recovered
     R1 = R+new_recovered
-    TotI1 = A1 + I1 + Sy1
-    return [S1, A1, I1, Sy1, R1, TotI1, new_acquired, new_infectious]
+    TotI1 = E1 + I1 + Sy1
+    return [S1, E1, I1, Sy1, R1, TotI1, new_acquired, new_infectious]
 
 
 def simulate(pop, params, tmax, step_type="stochastic"):
@@ -119,9 +119,9 @@ def simulate(pop, params, tmax, step_type="stochastic"):
         - inf_time: time it takes for an individual to become infectious
         - sympt_time: time it takes for an infectious individual to become symptomatic
         - N: population size
-    pop:    values for each population bin for each time step
+    pop:    values for each population bin at the current time step
         - S: susceptible population
-        - A: population with the disease who aren't infectious
+        - E: exposed population with the disease who aren't infectious
         - I: infectious population that isn't symptomatic
         - Sy: symptomatic population
         - R: recovered population
@@ -133,14 +133,14 @@ def simulate(pop, params, tmax, step_type="stochastic"):
     RETURNS:
     pop:    updated pop numpy matrix
     """
-    if step_type != "stochastic" or "deterministic":
+    if step_type not in ["stochastic","deterministic"]:
         print("Error: You have input an invalid type for step_type. Please input either 'stochastic' or 'deterministic'.")
         return
     for i in range(1, tmax+1):
         if step_type == "stochastic":
-            pop[i] = stochastic_SIRstep(params, pop, i)
+            pop[i] = stochastic_SIRstep(pop, params, i)
         else:
-            pop[i] = deterministic_SIRstep(params, pop, i)
+            pop[i] = deterministic_SIRstep(pop, params, i)
 
     return pop
 
@@ -149,9 +149,9 @@ def plot_sim(pop):
     using matplotlib.
     
     ARGS:
-    pop:    values for each population bin for each time step
+    pop:    values for each population bin at the current time step
         - S: susceptible population
-        - A: population with the disease who aren't infectious
+        - E: exposed population with the disease who aren't infectious
         - I: infectious population that isn't symptomatic
         - Sy: symptomatic population
         - R: recovered population
@@ -160,8 +160,8 @@ def plot_sim(pop):
     RETURNS:
     none. Plots a graph for the following parameters of pop over time:
         - S
+        - E
         - I
-        - A
         - S
         - R
     """
@@ -173,7 +173,7 @@ def plot_sim(pop):
     plt.grid()
     plt.title("Epidemiological Model")
     plt.plot(t, pop[:,0], 'orange', label='Susceptible')
-    plt.plot(t, pop[:,1], 'blue', label='Acquired')
+    plt.plot(t, pop[:,1], 'blue', label='Exposed')
     plt.plot(t, pop[:,2], 'r', label='Infectious')
     plt.plot(t, pop[:,3], 'g', label='Symptomatic')
     plt.plot(t, pop[:,4], 'yellow', label='Recovered')
@@ -190,9 +190,9 @@ def bloodnet(pop, blood_params):
     surveilance approach detecting the pathogen within the population
     
     ARGS:
-    pop:    values for each population bin for each time step
+    pop: values for each population bin at the current time step
         - S: susceptible population
-        - A: population with the disease who aren't infectious
+        - E: exposed population with the disease who aren't infectious
         - I: infectious population that isn't symptomatic
         - Sy: symptomatic population
         - R: recovered population
@@ -209,13 +209,13 @@ def bloodnet(pop, blood_params):
     detection_thresh_blood, p_inf_donation, p_donation_to_bloodnet = blood_params
     nrows, ncols = pop.shape
     tmax = nrows-1
-    A = pop[:,1]
+    E = pop[:,1]
     I = pop[:,2]
     total_pos_trials = np.zeros(tmax+1) # total number of times an acquired/infected person could donate blood
     prob_detect = np.zeros(tmax+1)
 
     for i in range(1,tmax+1):
-        total_pos_trials[i] = total_pos_trials[i-1]+A[i]+I[i]
+        total_pos_trials[i] = total_pos_trials[i-1]+E[i]+I[i]
         x = np.arange(0, detection_thresh_blood+1)
         cum_prob = binom.sf(x, total_pos_trials[i], p_inf_donation*p_donation_to_bloodnet)
         # print(f'\n {total_pos_trials[i]}, {cum_prob[detection_thresh]}')
@@ -231,9 +231,9 @@ def threatnet(pop, threat_params):
     surveilance approach detecting the pathogen within the population
     
     ARGS:
-    pop:    values for each population bin for each time step
+    pop: values for each population bin at the current time step
         - S: susceptible population
-        - A: population with the disease who aren't infectious
+        - E: exposed population with the disease who aren't infectious
         - I: infectious population that isn't symptomatic
         - Sy: symptomatic population
         - R: recovered population
@@ -271,9 +271,9 @@ def plot_net(pop, blood_params, threat_params):
     probability of each method detecting the pathogen over time.
     
     ARGS:
-    pop:    values for each population bin for each time step
+    pop:    values for each population bin at the current time step
         - S: susceptible population
-        - A: population with the disease who aren't infectious
+        - E: exposed population with the disease who aren't infectious
         - I: infectious population that isn't symptomatic
         - Sy: symptomatic population
         - R: recovered population
