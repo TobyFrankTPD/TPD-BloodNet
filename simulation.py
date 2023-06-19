@@ -195,6 +195,10 @@ def bloodnet(pop, blood_params, sequencing_params):
     the sequencing test, each positive sequencing result has some probability of being a true
     postiive. After enough positive sequencing results, there is a high enough chance one 
     positive result is a true positive, and the virus is detected.
+
+    Positive tests occur at some rate when there is no pathogen. When positive tests increase,
+    the chance of a true positive goes up. Calculate when the chance of a positive test is high
+    enough given the test parameters.
     
     ARGS:
     pop: values for each population bin at the current time step
@@ -205,56 +209,60 @@ def bloodnet(pop, blood_params, sequencing_params):
         - R: recovered population
         - TotI: total population with the disease
     blood_params: model-specific parameters
-        - detection_thresh_blood: number of infected donations required to detect pathogen
-        - num_daily_donations: number of daily blood donations
+        - p_donation: probability that a donation-eligible person donates blood
         - p_donation_to_bloodnet: probability a donation occurs at a BloodNet center
     sequencing_params: statistical parameters of the sequencing test
         - true_positive_rate: proportion of sequences w/pathogen the test detects (also called statistical power)
         - false_positive_rate: proportion of sequences w/no pathogen the test says has pathogen
-        - seq_threshold: prob threshold at which the sequencing method "detects" the pathogen (ie: countermeasures begin)
 
     RETURNS:
     prob_detect: a [tmax+1,1] dimentional vector. For each time step,
     stores the probability of a bloodnet model detecting the pathogen.
     """
-    detection_thresh_blood, num_daily_donations, p_donation_to_bloodnet = blood_params
-    true_positive_rate, false_positive_rate, sequencing_confidence_threshold = sequencing_params
+    p_donation, p_donation_to_bloodnet = blood_params
+    true_positive_rate, false_positive_rate = sequencing_params
     nrows, ncols = pop.shape
     tmax = nrows-1
     N = sum(pop[0][0:5])
-    # total_pos_trials = np.zeros(tmax+1) # total number of times an acquired/infected person could donate blood
     prob_detect = np.zeros(tmax+1)
 
-    # TODO: This idea doesn't account for the fact that testing stacks across days
-
     for i in range(1,tmax+1):
-        p_infected = pop[i][5]/N #probability one person is infected
+        don_pop = N-pop[i][3]
+        num_samples = np.random.binomial(don_pop, p_donation * p_donation_to_bloodnet)
+        x = np.arange(0, num_samples)
+
+        #the test below assumes that the null hypothesis is 0 true positive tests. 
+        #   In reality, there are true positives without an exponentially growing pathogen
+        p_x_positives_null = binom.sf(x, num_samples, false_positive_rate) #probability distribution of obsering at least x positive results given no true positives
+
+        p_infected = (pop[i][1]+pop[i][2])/don_pop #probability one person is infected
         p_clean = 1 - p_infected
-        num_inf_donations = p_infected * num_daily_donations
         p_positive = true_positive_rate*p_infected + false_positive_rate*p_clean #probability a sequencing test will return a positive result
-        p_infected_positive = (true_positive_rate*p_infected)/p_positive #probability a positive testing result is a true positive
-        num_positive_tests = num_daily_donations * p_positive
-        x = np.arange(0, 21) # TODO: don't make 21 a hardcoded value
-        p_x_infected = binom.sf(x, num_positive_tests, p_infected_positive) #probability of x true positives
-        prob_detect[i] = p_x_infected[0]
-        print(f'day: {i:<3}, TotI: {pop[i][5]:<9}, #_inf_don: {round(num_inf_donations, 1):<6}, p_inf: {round(p_infected, 7):<9}, p_pos: {round(p_positive, 7):<9}, p_i_p: {round(p_infected_positive, 7):<9}, #_pos: {round(num_positive_tests,1):<6}, p_ten_i: {round(p_x_infected[9], 7):<10}')
+        # num_positive_tests = num_samples * p_positive
+        num_positive_tests = np.random.binomial(num_samples, p_positive)
+
+        print(f'day: {i:<3}, don_pop: {don_pop:<7}, num_samples: {round(num_samples,6):<12}, num_positives: {round(num_positive_tests,3):<12}, E+I: {pop[i][1]+pop[i][2]:<12}, Sy: {pop[i][3]:<12}, prob_detect: {round(1-p_x_positives_null[round(num_positive_tests)],6):<7}')
+
+        prob_detect[i] = 1-p_x_positives_null[round(num_positive_tests)]
+
 
     return prob_detect
 
     ### Commented out: previous implementation of this function, saving in case we need to revert and I am lazy
     # for i in range(1,tmax+1):
-    #     total_pos_trials[i] = total_pos_trials[i-1]+E[i]+I[i]
-    #     x = np.arange(0, detection_thresh_blood+1)
-    #     cum_prob = binom.sf(x, total_pos_trials[i], p_inf_donation*p_donation_to_bloodnet)
-    #     # print(f'\n {total_pos_trials[i]}, {cum_prob[detection_thresh]}')
-    #     if total_pos_trials[i] <= detection_thresh_blood:
-    #         prob_detect[i] = 0
-    #     else:
-    #         prob_detect[i] = cum_prob[detection_thresh_blood]
+    #     don_pop = N-pop[i][4] #population of people who can donate blood (symptomatic people can't donate blood)
+    #     p_infected = (pop[i][5]-pop[i][4])/don_pop #probability one person is infected
+    #     p_clean = 1 - p_infected
+    #     num_inf_donations = p_infected * num_daily_donations
+    #     p_positive = true_positive_rate*p_infected + false_positive_rate*p_clean #probability a sequencing test will return a positive result
+    #     p_infected_if_positive = (true_positive_rate*p_infected)/p_positive #probability a positive testing result is a true positive
+    #     num_positive_tests = num_daily_donations * p_positive
+    #     x = np.arange(0, 21) # TODO: don't make 21 a hardcoded value
+    #     p_x_infected = binom.sf(x, num_positive_tests, p_infected_if_positive) #probability of x true positives
+    #     prob_detect[i] = p_x_infected[20]
+    #     # print(f'day: {i:<3}, TotI: {pop[i][5]:<9}, #_inf_don: {round(num_inf_donations, 1):<6}, p_inf: {round(p_infected, 7):<9}, p_pos: {round(p_positive, 7):<9}, p_i_p: {round(p_infected_if_positive, 7):<9}, #_pos: {round(num_positive_tests,1):<6}, p_ten_i: {round(p_x_infected[9], 7):<10}')
 
-    return prob_detect
-
-def threatnet(pop, threat_params):
+def threatnet(pop, threat_params, sequencing_params):
     """Given a pop numpy matrix, calculates the probability of a threatnet
     surveilance approach detecting the pathogen within the population.
 
@@ -270,29 +278,47 @@ def threatnet(pop, threat_params):
         - R: recovered population
         - TotI: total population with the disease
     threat_params: model-specific parameters
-        - detection_thresh_threat: number of symptomatic patient sequences required to detect pathogen
-        - p_inf_sequenced: probability that a symptomatic person will get sequenced
+        - background_sick_rate: the proportion of people who are sick with a non-exponentially-growing pathogen
+        - p_sick_sequenced: probability that a sick person will get sequenced (both symptomatic w/pathogen of interest and sick regularly)
 
     RETURNS:
     prob_detect: a [tmax+1,1] dimentional vector. For each time step,
     stores the probability of a threatnet model detecting the pathogen.
     """
-    detection_thresh_threat, p_inf_sequenced = threat_params
+    background_sick_rate, p_sick_sequenced = threat_params
+    true_positive_rate, false_positive_rate = sequencing_params
     nrows, ncols = pop.shape
     tmax = nrows-1
     Sy = pop[:,3]
-    total_pos_visits = np.zeros(tmax+1) # total number of times an acquired/infected person could visit ED
+    # total_pos_visits = np.zeros(tmax+1) # total number of times an acquired/infected person could visit ED
     prob_detect = np.zeros(tmax+1)
 
-    for i in range(1,tmax+1):
-        total_pos_visits[i] = total_pos_visits[i-1]+Sy[i]
-        x = np.arange(0, detection_thresh_threat+1)
-        cum_prob = binom.sf(x, total_pos_visits[i], p_inf_sequenced)
-        # print(f'\n {total_pos_trials[i]}, {cum_prob[detection_thresh]}')
-        if total_pos_visits[i] <= detection_thresh_threat:
-            prob_detect[i] = 0
-        else:
-            prob_detect[i] = cum_prob[detection_thresh_threat]
+    for i in range(1, tmax+1):
+        prob_detect[i] = 0
+        # sick_pop = pop[i][3] + (sum(pop[i])-pop[i][3]) * background_sick_rate
+        # num_sick_sequenced = np.random.binomial(sick_pop, p_sick_sequenced)
+        # x = np.arange(0, num_sick_sequenced)
+
+        # p_x_positives_null = binom.sf(x, num_sick_sequenced, false_positive_rate) #probability distribution of obsering at least x positive results given no true positives
+
+        # # wrong, fix
+        # p_infected = pop[i][3]/sick_pop + ((pop[i][1] + pop[i][2]) * background_sick_rate)/sick_pop #probability one sick person is infected
+        # p_clean = 1 - p_infected
+        # p_positive = true_positive_rate*p_infected + false_positive_rate*p_clean #probability a sequencing test will return a positive result
+        # num_positive_tests = sick_pop * p_positive
+
+        # prob_detect[i] = 1-p_x_positives_null[round(num_positive_tests)]
+
+        # print(f'day: {i:<3}, sick_pop: {round(sick_pop,1):<7}, num_samples: {round(num_sick_sequenced,6):<12}, p_infected: {round(p_infected,3):<12}, Sy: {pop[i][3]}, prob_detect: {round(1-p_x_positives_null[round(num_positive_tests)],6):<7}')
+
+
+    print("done")
+
+    # for i in range(1,tmax+1):
+    #     # TODO: need to know the rate of sick people getting checked at hospitals
+    #     num_samples = Sy[i] * p_inf_sequenced
+    #     x = np.arange(0, num_samples)
+    #     p_x_positives_null = binom.sf(x, num_samples, false_positive_rate)
         
     return prob_detect
 
@@ -316,11 +342,15 @@ def plot_net(pop, blood_params, threat_params, sequencing_params):
     nrows, ncols = pop.shape
     t = np.linspace(0, nrows-1, nrows)
     blood_prob = bloodnet(pop, blood_params, sequencing_params)
-    threat_prob = threatnet(pop, threat_params)
+    threat_prob = threatnet(pop, threat_params, sequencing_params)
     # p_inf: percent of people who are not susceptible (A, I, Sy, or R)
     p_inf = np.zeros(nrows)
+    p_symp = np.zeros(nrows)
     for i in range(nrows):
-        p_inf[i] = 1-pop[i][0]/sum(pop[0][0:5])
+        p_inf[i] = (pop[i][1]+pop[i][2])/sum(pop[0][0:5])
+        p_symp[i] = (pop[i][3])/sum(pop[0][0:5])
+
+    print("about to make graph")
 
     plt.figure()
     plt.grid()
@@ -328,6 +358,7 @@ def plot_net(pop, blood_params, threat_params, sequencing_params):
     plt.plot(t, blood_prob, 'red', label='Prob of Detect (Bloodnet)')
     plt.plot(t, threat_prob, 'green', label='Prob of Detect (Threatnet)')
     plt.plot(t, p_inf, 'blue', label='% with pathogen or recovered')
+    plt.plot(t, p_symp, 'yellow', label='% symptomatic')
     plt.xlabel('Time t, [days]')
     plt.ylabel('Numbers of individuals')
     plt.ylim([0,1])
