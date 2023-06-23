@@ -1,20 +1,29 @@
-from simulation import simulate, plot_sim, plot_net
+from simulation import Population
 import numpy as np
 
 #community_params: num_communities, movement_matrix
-initial_community_sizes = [0.2, 0.2, 0.2, 0.2, 0.2]
+initial_community_sizes = [1]
 num_communities = len(initial_community_sizes)
-movement_matrix = [[0.9, 0.1, 0, 0, 0],
-                   [0, 0.9, 0.1, 0, 0],
-                   [0, 0, 0.9, 0.1, 0],
-                   [0, 0, 0, 0.9, 0.1],
-                   [0.1, 0, 0, 0, 0.9]]
+movement_matrix = [1]
 
-community_params = [num_communities, movement_matrix]
+# Sample movement matrix for num_communities = 5:
+# [0.9, 0.1, 0, 0, 0],
+# [0, 0.9, 0.1, 0, 0],
+# [0, 0, 0.9, 0.1, 0],
+# [0, 0, 0, 0.9, 0.1],
+# [0.1, 0, 0, 0, 0.9]
+
+community_params = [num_communities, initial_community_sizes, movement_matrix]
+
+tmax = 200 # total number of time steps
+N = 330000000 # population size
+initial_infected = 1 # TODO: Allow the infection to start in multiple communities
+#SIR_params: beta, gamma, inf_time, symp_time, N
+SIR_params = [0.5, 0.1, 21, 10, N]
 
 #sequencing_params: true_positive_rate, false_positive_rate
 #   Note: false_positive_rate includes samples with no pathogen detected as having a pathogen, and samples with a pathogen but not the pathogen that is exponentially growing
-sequencing_params = [0.95, 0.01]
+sequencing_params = [0.95, 0.1]
 #true_positive_rate: proportion of sequences w/pathogen the test detects (also called statistical power)
 #false_positive_rate: proportion of sequences w/out pathogen of interest that the test says has a pathogen
 
@@ -35,27 +44,28 @@ threat_params = [0.001, p_hospitalized, 0.2]
 #   command_readiness: likelihood of a doctor's report being picked up by the system
 astute_params = [p_hospitalized, 0.01, 0.1]
 
-tmax = 200 # total number of time steps
-N = 330000000 # population size
-initial_infected = 1 # TODO: Allow the infection to start in multiple communities
-#params: beta, gamma, inf_time, symp_time, N
-params = [0.5, 0.1, 21, 10, N]
+# List of Model Params:
+# true_positive_rate, false_positive_rate, p_donation, p_donation_to_bloodnet,
+# background_sick_rate, p_hospitalized, p_hospital_sequenced, p_doctor_detect, command_readiness,
+# beta, gamma, inf_time, symp_time, N
 
 #pop: S, E, I, Sy, R, TotI, new_acquired, new_infectious (TotI = A + I + Sy)
-pop = np.zeros((tmax+1, num_communities+1, 8))
-pop[0][0] = [N-1, 0, 1, 0, 0, 1, 0, 0]
-for i in range(num_communities):
-    infected_i = initial_infected if i == 0 else 0
-    N_i = round(N*initial_community_sizes[i])
-    pop_i = [N_i-infected_i, 0, infected_i, 0, 0, infected_i, 0, 0]
-    pop[0][i+1] = pop_i
 
-t = np.linspace(0, tmax, tmax+1)
+# pop = np.zeros((tmax+1, num_communities+1, 8))
+# pop[0][0] = [N-1, 0, 1, 0, 0, 1, 0, 0]
+# for i in range(num_communities):
+#     infected_i = initial_infected if i == 0 else 0
+#     N_i = round(N*initial_community_sizes[i])
+#     pop_i = [N_i-infected_i, 0, infected_i, 0, 0, infected_i, 0, 0]
+#     pop[0][i+1] = pop_i
 
-pop = simulate(pop, params, community_params, tmax)
+# t = np.linspace(0, tmax, tmax+1)
 
-# print(pop[:,0:,])
+model_population = Population(N, initial_infected, tmax, community_params)
+model_population.set_parameters(sequencing_params, blood_params, threat_params, astute_params, SIR_params)
 
-# plot_sim(pop)
+model_population.simulate()
 
-plot_net(pop, blood_params, threat_params, astute_params, sequencing_params)
+model_population.plot_net()
+
+# model_population.plot_sim()
