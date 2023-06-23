@@ -209,7 +209,7 @@ def plot_sim(pop):
 
     plt.show()
 
-def bloodnet(pop, blood_params, sequencing_params):
+def bloodnet(pop, blood_params, sequencing_params, community_i=0):
     """Given a pop numpy matrix, calculates the probability of a bloodnet
     surveilance approach detecting the pathogen within the population.
 
@@ -233,12 +233,13 @@ def bloodnet(pop, blood_params, sequencing_params):
     sequencing_params: statistical parameters of the sequencing test
         - true_positive_rate: proportion of sequences w/pathogen the test detects (also called statistical power)
         - false_positive_rate: proportion of sequences w/no pathogen the test says has pathogen
+    community_i: instructions for which community to use for calculations. Default is total population
 
     RETURNS:
     prob_detect: a [tmax+1,1] dimentional vector. For each time step,
     stores the probability of a bloodnet model detecting the pathogen.
     """
-    pop = pop[:,0:,][:,0] # isolates the aggregate population data from the population tensor
+    pop = pop[:,0:,][:,community_i] # isolates the desired population data from the population tensor
     p_donation, p_donation_to_bloodnet = blood_params
     true_positive_rate, false_positive_rate = sequencing_params
     nrows, ncols = pop.shape
@@ -264,35 +265,15 @@ def bloodnet(pop, blood_params, sequencing_params):
             p_positive = true_positive_rate*p_infected + false_positive_rate*p_clean #probability a sequencing test will return a positive result
             num_positive_tests = np.random.binomial(num_samples, p_positive)
 
-            print(f'day: {i:<3}, don_pop: {round(don_pop):<7}, num_samples: {round(num_samples,6):<12}, num_positives: {round(num_positive_tests,3):<12}, E+I: {round(pop[i][1]+pop[i][2]):<12}, Sy: {round(pop[i][3]):<12}, prob_detect: {round(1-p_x_positives_null[round(num_positive_tests)],6):<7}')
+            print(f'community: {community_i}, day: {i:<3}, don_pop: {round(don_pop):<7}, num_samples: {round(num_samples,6):<12}, num_positives: {round(num_positive_tests,3):<12}, E+I: {round(pop[i][1]+pop[i][2]):<12}, Sy: {round(pop[i][3]):<12}, prob_detect: {round(1-p_x_positives_null[round(num_positive_tests)],6):<7}')
 
             prob_detect[i] = 1-p_x_positives_null[num_positive_tests]
 
     return prob_detect
 
-    ### Commented out: previous implementation of this function, saving in case we need to revert and I am lazy
-    # for i in range(1,tmax+1):
-    #     don_pop = N-pop[i][4] #population of people who can donate blood (symptomatic people can't donate blood)
-    #     p_infected = (pop[i][5]-pop[i][4])/don_pop #probability one person is infected
-    #     p_clean = 1 - p_infected
-    #     num_inf_donations = p_infected * num_daily_donations
-    #     p_positive = true_positive_rate*p_infected + false_positive_rate*p_clean #probability a sequencing test will return a positive result
-    #     p_infected_if_positive = (true_positive_rate*p_infected)/p_positive #probability a positive testing result is a true positive
-    #     num_positive_tests = num_daily_donations * p_positive
-    #     x = np.arange(0, 21) # TODO: don't make 21 a hardcoded value
-    #     p_x_infected = binom.sf(x, num_positive_tests, p_infected_if_positive) #probability of x true positives
-    #     prob_detect[i] = p_x_infected[20]
-    #     # print(f'day: {i:<3}, TotI: {pop[i][5]:<9}, #_inf_don: {round(num_inf_donations, 1):<6}, p_inf: {round(p_infected, 7):<9}, p_pos: {round(p_positive, 7):<9}, p_i_p: {round(p_infected_if_positive, 7):<9}, #_pos: {round(num_positive_tests,1):<6}, p_ten_i: {round(p_x_infected[9], 7):<10}')
-
 def bloodnet_community(pop, blood_params, sequencing_params):
-    """Given a pop numpy matrix, calculates the probability of a bloodnet
-    surveilance approach detecting the pathogen within the population.
-
-    BloodNet: every day, a certain proportion of people donate blood, which are then sequenced and
-    tested. Positive tests (indicating presence of a pathogen) occur at some rate even when there 
-    is no pathogen. When positive tests increase, the chance of a true positive goes up. At some
-    point, the chance of a true positive is high enough to reject the null hypothesis of no true 
-    positives.
+    """Calls the bloodnet detection model on each sub-community
+    of the population.
     
     ARGS:
     pop: values for each population bin at the current time step
@@ -310,36 +291,18 @@ def bloodnet_community(pop, blood_params, sequencing_params):
         - false_positive_rate: proportion of sequences w/no pathogen the test says has pathogen
 
     RETURNS:
-    prob_detect: a [tmax+1,1] dimentional vector. For each time step,
-    stores the probability of a bloodnet model detecting the pathogen.
+    prob_detects: a [num_communities, tmax+1] dimentional vector. For each time step,
+    stores the probability of a bloodnet model detecting the pathogen for each community.
     """
-    p_donation, p_donation_to_bloodnet = blood_params
-    true_positive_rate, false_positive_rate = sequencing_params
-    nrows, num_communities, ncols = pop.shape
+    nrows, nstacks, ncols = pop.shape
+    num_communities = nstacks-1
     tmax = nrows-1
-    N = sum(pop[0][0:5])
-    prob_detect = np.zeros(tmax+1)
+    prob_detects = np.zeros((num_communities, tmax+1))
 
-    for i in range(1,tmax+1):
-        don_pop = N-pop[i][3]
-        num_samples = np.random.binomial(don_pop, p_donation * p_donation_to_bloodnet)
-        x = np.arange(0, num_samples)
+    for i in range(num_communities):
+        prob_detects[i] = bloodnet(pop, blood_params, sequencing_params, i+1)
 
-        # TODO: the test below assumes that the null hypothesis is 0 true positive tests. 
-        #   In reality, there are true positives without an exponentially growing pathogen
-        p_x_positives_null = binom.sf(x, num_samples, false_positive_rate) #probability distribution of obsering at least x positive results given no true positives
-
-        p_infected = (pop[i][1]+pop[i][2])/don_pop #probability one person is infected
-        p_clean = 1 - p_infected
-        p_positive = true_positive_rate*p_infected + false_positive_rate*p_clean #probability a sequencing test will return a positive result
-        num_positive_tests = np.random.binomial(num_samples, p_positive)
-
-        # print(f'day: {i:<3}, don_pop: {don_pop:<7}, num_samples: {round(num_samples,6):<12}, num_positives: {round(num_positive_tests,3):<12}, E+I: {pop[i][1]+pop[i][2]:<12}, Sy: {pop[i][3]:<12}, prob_detect: {round(1-p_x_positives_null[round(num_positive_tests)],6):<7}')
-
-        prob_detect[i] = 1-p_x_positives_null[round(num_positive_tests)]
-
-
-    return prob_detect
+    return prob_detects
 
 
 def threatnet(pop, threat_params, sequencing_params):
@@ -368,9 +331,10 @@ def threatnet(pop, threat_params, sequencing_params):
     prob_detect: a [tmax+1,1] dimentional vector. For each time step,
     stores the probability of a threatnet model detecting the pathogen.
     """
-    background_sick_rate, p_sick_sequenced = threat_params
+    background_sick_rate, p_hospitalized, p_hospital_sequenced = threat_params
     true_positive_rate, false_positive_rate = sequencing_params
-    nrows, num_communities, ncols = pop.shape
+    nrows, nstacks, ncols = pop.shape
+    num_communities = nstacks-1
     tmax = nrows-1
     Sy = pop[:,3]
     N = sum(pop[0][0:5])
@@ -379,7 +343,7 @@ def threatnet(pop, threat_params, sequencing_params):
 
     for i in range(1, tmax+1):
         num_sick = (N - Sy[i]) * background_sick_rate + Sy[i]
-        num_sequenced = np.random.binomial(num_sick, p_sick_sequenced)
+        num_sequenced = np.random.binomial(num_sick, p_hospitalized*p_hospital_sequenced)
         x = np.arange(0, num_sequenced)
 
         p_x_positives_null = binom.sf(x, num_sequenced, false_positive_rate)
@@ -391,13 +355,59 @@ def threatnet(pop, threat_params, sequencing_params):
 
         prob_detect[i] = 1-p_x_positives_null[round(num_positive_tests)]
 
-        print(f'day: {i:<3}, num_sick: {num_sick:<7}, num_sequenced: {round(num_sequenced,6):<12}, num_positives: {round(num_positive_tests,3):<12}, E+I: {pop[i][1]+pop[i][2]:<12}, Sy: {pop[i][3]:<12}, prob_detect: {round(1-p_x_positives_null[round(num_positive_tests)],6):<7}')
+        # print(f'day: {i:<3}, num_sick: {num_sick:<7}, num_sequenced: {round(num_sequenced,6):<12}, num_positives: {round(num_positive_tests,3):<12}, E+I: {pop[i][1]+pop[i][2]:<12}, Sy: {pop[i][3]:<12}, prob_detect: {round(1-p_x_positives_null[round(num_positive_tests)],6):<7}')
 
 
     return prob_detect
 
+def astutenet(pop, astute_params, community_i=0):
+    """Given a pop numpy matrix, calculates the probability of an astute doctor
+    successfully discovering and reporting a novel pathogen.
 
-def plot_net(pop, blood_params, threat_params, sequencing_params):
+    When people get sick, they sometimes go to the hospital. These people are
+    seen by doctors, and if enough people have novel symptoms then an astute
+    doctor might realize there is something going on. If the doctor raises
+    the alarm and their alarm is heard, then the new pathogen is detected.
+
+    ARGS:
+    pop: values for each population bin at the current time step
+        - S: susceptible population
+        - E: exposed population with the disease who aren't infectious
+        - I: infectious population that isn't symptomatic
+        - Sy: symptomatic population
+        - R: recovered population
+        - TotI: total population with the disease
+    astute_params: p_hospitalized, p_doctor_detect, command_readiness
+        - p_hospitalized: the proportion of symptomatic people who go to a hospital
+        - p_doctor_detect: the probability that a doctor reports a symptomatic case as a new pathogen
+        - command_readiness: likelihood of a doctor's report being picked up by the system
+    community_i: instructions for which community to use for calculations. Default is total population
+
+    RETURNS:
+    prob_detect: a [tmax+1,1] dimentional vector. For each time step,
+    stores the probability of an astute doctor successfully reporting a novel pathogen.
+    """
+    p_hospitalized, p_doctor_detect, chi = astute_params
+    pop = pop[:,0:,][:,community_i] # isolates the desired population data from the population tensor
+    nrows, ncols = pop.shape
+    tmax = nrows-1
+
+    Sy = pop[:,3]
+    N = sum(pop[0][0:5])
+    prob_detect = np.zeros(tmax+1)
+
+    for i in range(1, tmax+1):
+        num_symp_hospitalized = np.random.binomial(Sy[i], p_hospitalized)
+        num_hospital_reports = np.random.binomial(num_symp_hospitalized, p_doctor_detect)
+
+        # not stochastic, can make it stochastic w/a cdf
+        p_investigation = 1 / (1 + (100/chi) * math.e**(-chi * num_hospital_reports))
+        prob_detect[i] = p_investigation
+    
+    return prob_detect
+
+
+def plot_net(pop, blood_params, threat_params, astute_params, sequencing_params):
     """Given a pop numpy matrix, calls different net methods and plots the
     probability of each method detecting the pathogen over time.
     
@@ -413,34 +423,71 @@ def plot_net(pop, blood_params, threat_params, sequencing_params):
     RETURNS:
     none. Plots each probability vector over time using matplotlib.
     """
-    nrows, num_communities, ncols = pop.shape
-    t = np.linspace(0, nrows-1, nrows)
+    nrows, nstacks, ncols = pop.shape
+    tmax = nrows-1
+    num_communities = nstacks-1
+    t = np.linspace(0, tmax, tmax+1)
     blood_prob = bloodnet(pop, blood_params, sequencing_params)
+    community_blood_probs = bloodnet_community(pop, blood_params, sequencing_params)
+    astute_prob = astutenet(pop, astute_params)
+
     # threat_prob = threatnet(pop, threat_params, sequencing_params)
-    # p_inf: percent of people who are not susceptible (A, I, Sy, or R)
     
     pop = pop[:,0:,][:,0] # isolates the aggregate population data from the population tensor
-    p_inf = np.zeros(nrows)
+    p_inf = np.zeros(nrows) # p_inf: percent of people who are not susceptible (A, I, Sy, or R)
     p_symp = np.zeros(nrows)
     for i in range(nrows):
         p_inf[i] = (pop[i][1]+pop[i][2])/sum(pop[0][0:5])
         p_symp[i] = (pop[i][3])/sum(pop[0][0:5])
 
-    print("about to make graph")
-
+    # Astute Doctor Total Model
     plt.figure()
-    plt.grid()
-    plt.title("BloodNet Model")
-    plt.plot(t, blood_prob, 'red', label='Prob of Detect (Bloodnet)')
-    # plt.plot(t, threat_prob, 'green', label='Prob of Detect (Threatnet)')
-    plt.plot(t, p_inf, 'blue', label='% with pathogen or recovered')
+    plt.title(f'Astute Doctor Total Population Model')
+    plt.plot(t, astute_prob, 'red', label='astute doctor')
+    plt.plot(t, p_inf, 'blue', label='% infected/recovered')
     plt.plot(t, p_symp, 'yellow', label='% symptomatic')
     plt.xlabel('Time t, [days]')
     plt.ylabel('Numbers of individuals')
     plt.ylim([0,1])
     plt.legend()
+    plt.show() 
 
-    plt.show()
+    # Bloodnet Total Model
+    plt.figure()
+    plt.title("BloodNet Total Population Model")
+    plt.plot(t, blood_prob, 'red', label='total bloodnet')
+    plt.plot(t, p_inf, 'blue', label='% infected/recovered')
+    plt.plot(t, p_symp, 'yellow', label='% symptomatic')
+    plt.xlabel('Time t, [days]')
+    plt.ylabel('Numbers of individuals')
+    plt.ylim([0,1])
+    plt.legend()
+    plt.show()  
+
+    # Bloodnet Community Models
+    for i in range(num_communities):
+        color = list(np.random.choice(range(256), size=3))
+        plt.figure()
+        plt.title(f'BloodNet Community {i+1} Model')
+        plt.plot(t, community_blood_probs[i], color, label=f'bloodnet community {i+1})')
+        plt.plot(t, p_inf, 'blue', label='% infected/recovered')
+        plt.plot(t, p_symp, 'yellow', label='% symptomatic')
+        plt.xlabel('Time t, [days]')
+        plt.ylabel('Numbers of individuals')
+        plt.ylim([0,1])
+        plt.legend()
+        plt.show()  
+    
+    # Threatnet Total Population Model
+    # plt.figure()
+    # plt.title("BloodNet Total Population Model")
+    # plt.plot(t, threat_prob, 'green', label='Prob of Detect (Threatnet)')
+    # plt.xlabel('Time t, [days]')
+    # plt.ylabel('Numbers of individuals')
+    # plt.ylim([0,1])
+    # plt.legend()
+    # plt.show()  
+
 
 # def fill_param_space(blood_params, threat_params, N, max_params):
 #     detection_thresh_blood, p_inf_donation, p_donation_to_bloodnet = blood_params
