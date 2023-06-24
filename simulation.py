@@ -11,6 +11,46 @@ import math
 #   - add somewhere saying inf_time and symp_time can't be 0
 
 class Population(): 
+    """Defines a population of individuals during a novel pandemic. Encodes relevant
+    parameters and has a number of functions for SIR modeling and pathogen detection 
+    analysis.
+
+    IMPORTANT PARAMETERS:
+    N: population size
+    tmax: time simulation will run for
+    t: tmax x 1 numpy array for plotly graphs
+    pop: tmax x num_communities x 8 numpy array. Values for each population bin at the current time step
+        - S: susceptible population
+        - E: exposed population with the disease who aren't infectious
+        - I: infectious population that isn't symptomatic
+        - Sy: symptomatic population
+        - R: recovered population
+        - TotI: total population with the disease
+        - new_exposed: newly exposed individuals in the population
+        - new_infectious: newly infected individuals in the population
+    community_params: values storing information about how the population is split into communities
+        - num_communities (n): number of semi-isolated communities
+        - initial_community_sizes: n x 1 numpy array. Initial relative sizes of each community
+        - movement_matrix: n x n numpy array. Migration matrix for population movement between communities
+    sequencing_params: statistical parameters of the sequencing test being used
+        - true_positive_rate: proportion of sequences w/pathogen the test detects (also called statistical power)
+        - false_positive_rate: proportion of sequences w/no pathogen the test says has pathogen
+    blood_params: model-specific parameters for the BloodNet surveilance system
+        - p_donation: probability that a donation-eligible person donates blood
+        - p_donation_to_bloodnet: probability a donation occurs at a BloodNet center
+    threat_params: model-specific parameters for the ThreatNet surveilance system
+        - background_sick_rate: the proportion of people who are sick with a non-exponentially-growing pathogen
+        - p_sick_sequenced: probability that a sick person will get sequenced (both symptomatic w/pathogen of interest and sick regularly)
+    astute_params: pmodel-specific parameters for the AstuteNet surveilance system
+        - p_hospitalized: the proportion of symptomatic people who go to a hospital
+        - p_doctor_detect: the probability that a doctor reports a symptomatic case as a new pathogen
+        - command_readiness: likelihood of a doctor's report being picked up by the system
+    SIR_params: list of model-specific parameters: 
+        - beta: rate of infection
+        - gamma: rate of recovery
+        - inf_time: time it takes for an exposed individual to become infectious
+        - sympt_time: time it takes for an infectious individual to become symptomatic
+    """
     def __init__(self, N = 100000, initial_infected = 1, tmax = 200, community_params = [1, [1], [1]]):
         self.N = N
         self.tmax = tmax
@@ -40,32 +80,12 @@ class Population():
         about the simulated population/communities for each time step
         
         ARGS:
-        params: list of model-specific parameters: 
-            - beta: rate of infection
-            - gamma: rate of recovery
-            - inf_time: time it takes for an individual to become infectious
-            - sympt_time: time it takes for an infectious individual to become symptomatic
-            - N: population size
-        pop: 3D numpy array. Values for each population bin at the current time step
-            - S: susceptible population
-            - E: exposed population with the disease who aren't infectious
-            - I: infectious population that isn't symptomatic
-            - Sy: symptomatic population
-            - R: recovered population
-            - TotI: total population with the disease
-            - new_exposed: newly exposed individuals in the population
-            - new_infectious: newly infected individuals in the population
-        community_params: values storing information about how the population is split into communities
-            - num_communities: number of semi-isolated communities
-            - movement_matrix: migration matrix for population movement between communities
-        tmax:   number of time steps to run the simulation
         step_type: determines whether steps should be calculated deterministically or stochastically.
             - Valid inputs: "stochastic" or "deterministic"
 
         RETURNS:
-        pop_list: updated pop numpy matrices for each community. pop_list[0] contains population aggregate
+        None. Updates pop to reflect the result of the SIR simulation
         """
-
         if step_type not in ["stochastic","deterministic"]:
             print("Error: You have input an invalid type for step_type. Please input either 'stochastic' or 'deterministic'.")
             return
@@ -81,12 +101,6 @@ class Population():
         """Calculates one step of the SIR model. Steps are deterministic and fractional.
         
         ARGS: 
-        params: list of model-specific parameters: 
-            - beta: rate of infection
-            - gamma: rate of recovery
-            - inf_time: time it takes for an individual to become infectious
-            - sympt_time: time it takes for an infectious individual to become symptomatic
-            - N: population size
         pop: 3D numpy array. Values for each population bin at the current time step
             - S: susceptible population
             - E: exposed population with the disease who aren't infectious
@@ -96,17 +110,23 @@ class Population():
             - TotI: total population with the disease
             - new_exposed: newly exposed individuals in the population
             - new_infectious: newly infected individuals in the population
+        params: list of model-specific parameters: 
+            - beta: rate of infection
+            - gamma: rate of recovery
+            - inf_time: time it takes for an individual to become infectious
+            - sympt_time: time it takes for an infectious individual to become symptomatic
+            - N: population size
         t: current time step
 
         RETURNS
         values for each population bin at the next time step, indexed as follows:
-        Susceptible, Acquired, Infectious, Symptomatic, Recovered, E + I + S (Total Infections)
+        Susceptible, Exposed, Infectious, Symptomatic, Recovered, E + I + S (Total Infections)
         """
-        beta, gamma, inf_time, symp_time, N = params
+        beta, gamma, inf_time, symp_time = params
         S, E, I, Sy, R, TotI = pop[t-1][0:6]
 
         # calculate changes in population bins
-        new_acquired = (S*(I+Sy)*beta)/N
+        new_exposed = (S*(I+Sy)*beta)/self.N
         new_recovered = Sy*gamma
 
         if t < inf_time: # prevents indexing error
@@ -119,26 +139,20 @@ class Population():
             new_symptomatic = pop[t-symp_time][7]
 
         # update population bins
-        S1 = S-new_acquired
-        E1 = E+new_acquired-new_infectious
+        S1 = S-new_exposed
+        E1 = E+new_exposed-new_infectious
         I1 = I+new_infectious-new_symptomatic
         Sy1 = Sy+new_symptomatic-new_recovered
         R1 = R+new_recovered
         TotI1 = E1 + I1 + Sy1
         
-        return [S1, E1, I1, Sy1, R1, TotI1, new_acquired, new_infectious]
+        return [S1, E1, I1, Sy1, R1, TotI1, new_exposed, new_infectious]
 
     def stochastic_SIRstep(self, pop, params, community_params, t):
         """Calculates one step of the SIR model. Steps are stochastic and discrete
         (no fractional populations)
         
-        ARGS: 
-        params: list of model-specific parameters: 
-            - beta: rate of infection
-            - gamma: rate of recovery
-            - inf_time: time it takes for an individual to become infectious
-            - sympt_time: time it takes for an infectious individual to become symptomatic
-            - N: population size
+        ARGS:
         pop: 3D numpy array. Values for each population bin at the current time step
             - S: susceptible population
             - E: exposed population with the disease who aren't infectious
@@ -147,7 +161,13 @@ class Population():
             - R: recovered population
             - TotI: total population with the disease
             - new_exposed: newly exposed individuals in the population
-            - new_infectious: newly infected individuals in the population
+            - new_infectious: newly infected individuals in the population 
+        params: list of model-specific parameters: 
+            - beta: rate of infection
+            - gamma: rate of recovery
+            - inf_time: time it takes for an individual to become infectious
+            - sympt_time: time it takes for an infectious individual to become symptomatic
+            - N: population size
         community_params: values storing information about how the population is split into communities
             - num_communities: number of semi-isolated communities
             - movement_matrix: migration matrix for population movement between communities
@@ -156,9 +176,9 @@ class Population():
         RETURNS
         values for each population bin at the next time step, separated by community, 
         indexed as follows:
-            - Susceptible, Acquired, Infectious, Symptomatic, Recovered, Total Infections (A + I + Sy)
+            - Susceptible, Exposed, Infectious, Symptomatic, Recovered, Total Infections (E + I + Sy)
         """
-        beta, gamma, inf_time, symp_time, N = params
+        beta, gamma, inf_time, symp_time = params
         num_communities, initial_community_sizes, movement_matrix = community_params
         pop_t = np.zeros((num_communities+1, 8))
 
@@ -203,15 +223,7 @@ class Population():
         using matplotlib.
         
         ARGS:
-        pop: 3D numpy array. Values for each population bin at the current time step
-            - S: susceptible population
-            - E: exposed population with the disease who aren't infectious
-            - I: infectious population that isn't symptomatic
-            - Sy: symptomatic population
-            - R: recovered population
-            - TotI: total population with the disease
-            - new_exposed: newly exposed individuals in the population
-            - new_infectious: newly infected individuals in the population
+        none.
 
         RETURNS:
         none. Plots a graph for the following parameters of pop over time:
@@ -221,7 +233,6 @@ class Population():
             - Sy
             - R
         """
-
         plt.figure()
         plt.grid()
         plt.title("Epidemiological Model")
@@ -248,22 +259,7 @@ class Population():
         positives.
         
         ARGS:
-        pop: 3D numpy array. Values for each population bin at the current time step
-            - S: susceptible population
-            - E: exposed population with the disease who aren't infectious
-            - I: infectious population that isn't symptomatic
-            - Sy: symptomatic population
-            - R: recovered population
-            - TotI: total population with the disease
-            - new_exposed: newly exposed individuals in the population
-            - new_infectious: newly infected individuals in the population
-        blood_params: model-specific parameters
-            - p_donation: probability that a donation-eligible person donates blood
-            - p_donation_to_bloodnet: probability a donation occurs at a BloodNet center
-        sequencing_params: statistical parameters of the sequencing test
-            - true_positive_rate: proportion of sequences w/pathogen the test detects (also called statistical power)
-            - false_positive_rate: proportion of sequences w/no pathogen the test says has pathogen
-        community_i: instructions for which community to use for calculations. Default is total population
+        community_i: instructions for which community to use for calculations. Default is total population (0).
 
         RETURNS:
         prob_detect: a [tmax+1,1] dimentional vector. For each time step,
@@ -303,21 +299,7 @@ class Population():
         of the population.
         
         ARGS:
-        pop: 3D numpy array. Values for each population bin at the current time step
-            - S: susceptible population
-            - E: exposed population with the disease who aren't infectious
-            - I: infectious population that isn't symptomatic
-            - Sy: symptomatic population
-            - R: recovered population
-            - TotI: total population with the disease
-            - new_exposed: newly exposed individuals in the population
-            - new_infectious: newly infected individuals in the population
-        blood_params: model-specific parameters
-            - p_donation: probability that a donation-eligible person donates blood
-            - p_donation_to_bloodnet: probability a donation occurs at a BloodNet center
-        sequencing_params: statistical parameters of the sequencing test
-            - true_positive_rate: proportion of sequences w/pathogen the test detects (also called statistical power)
-            - false_positive_rate: proportion of sequences w/no pathogen the test says has pathogen
+        none.
 
         RETURNS:
         prob_detects: a [num_communities, tmax+1] dimentional vector. For each time step,
@@ -343,18 +325,7 @@ class Population():
         positive is high enough to reject the null hypothesis of no true positives.
         
         ARGS:
-        pop: 3D numpy array. Values for each population bin at the current time step
-            - S: susceptible population
-            - E: exposed population with the disease who aren't infectious
-            - I: infectious population that isn't symptomatic
-            - Sy: symptomatic population
-            - R: recovered population
-            - TotI: total population with the disease
-            - new_exposed: newly exposed individuals in the population
-            - new_infectious: newly infected individuals in the population
-        threat_params: model-specific parameters
-            - background_sick_rate: the proportion of people who are sick with a non-exponentially-growing pathogen
-            - p_sick_sequenced: probability that a sick person will get sequenced (both symptomatic w/pathogen of interest and sick regularly)
+        none.
 
         RETURNS:
         prob_detect: a [tmax+1,1] dimentional vector. For each time step,
@@ -381,9 +352,6 @@ class Population():
 
             prob_detect[i] = 1-p_x_positives_null[round(num_positive_tests)]
 
-            # print(f'day: {i:<3}, num_sick: {num_sick:<7}, num_sequenced: {round(num_sequenced,6):<12}, num_positives: {round(num_positive_tests,3):<12}, E+I: {pop[i][1]+pop[i][2]:<12}, Sy: {pop[i][3]:<12}, prob_detect: {round(1-p_x_positives_null[round(num_positive_tests)],6):<7}')
-
-
         return prob_detect
 
     def astutenet(self, community_i=0):
@@ -396,19 +364,6 @@ class Population():
         the alarm and their alarm is heard, then the new pathogen is detected.
 
         ARGS:
-        pop: 3D numpy array. Values for each population bin at the current time step
-            - S: susceptible population
-            - E: exposed population with the disease who aren't infectious
-            - I: infectious population that isn't symptomatic
-            - Sy: symptomatic population
-            - R: recovered population
-            - TotI: total population with the disease
-            - new_exposed: newly exposed individuals in the population
-            - new_infectious: newly infected individuals in the population
-        astute_params: p_hospitalized, p_doctor_detect, command_readiness
-            - p_hospitalized: the proportion of symptomatic people who go to a hospital
-            - p_doctor_detect: the probability that a doctor reports a symptomatic case as a new pathogen
-            - command_readiness: likelihood of a doctor's report being picked up by the system
         community_i: instructions for which community to use for calculations. Default is total population
 
         RETURNS:
@@ -425,8 +380,8 @@ class Population():
             num_symp_hospitalized = np.random.binomial(Sy[i], p_hospitalized)
             num_hospital_reports = np.random.binomial(num_symp_hospitalized, p_doctor_detect)
 
-            # not stochastic, can make it stochastic w/a cdf
-            p_investigation = 1 / (1 + (100/chi) * math.e**(-chi * num_hospital_reports))
+            # not stochastic, can make it stochastic w/a cdf. This function is very arbitrary lol
+            p_investigation = 1 / (1 + (50/chi) * math.e**(-2 * chi * num_hospital_reports))
             prob_detect[i] = p_investigation
         
         return prob_detect
@@ -437,29 +392,8 @@ class Population():
         probability of each method detecting the pathogen over time.
         
         ARGS:
-        pop: 3D numpy array. Values for each population bin at the current time step
-            - S: susceptible population
-            - E: exposed population with the disease who aren't infectious
-            - I: infectious population that isn't symptomatic
-            - Sy: symptomatic population
-            - R: recovered population
-            - TotI: total population with the disease
-            - new_exposed: newly exposed individuals in the population
-            - new_infectious: newly infected individuals in the population
-        blood_params: model-specific parameters
-            - p_donation: probability that a donation-eligible person donates blood
-            - p_donation_to_bloodnet: probability a donation occurs at a BloodNet center
-        threat_params: model-specific parameters
-            - background_sick_rate: the proportion of people who are sick with a non-exponentially-growing pathogen
-            - p_sick_sequenced: probability that a sick person will get sequenced (both symptomatic w/pathogen of interest and sick regularly)
-        astute_params: p_hospitalized, p_doctor_detect, command_readiness
-            - p_hospitalized: the proportion of symptomatic people who go to a hospital
-            - p_doctor_detect: the probability that a doctor reports a symptomatic case as a new pathogen
-            - command_readiness: likelihood of a doctor's report being picked up by the system
-        sequencing_params: statistical parameters of the sequencing test
-            - true_positive_rate: proportion of sequences w/pathogen the test detects (also called statistical power)
-            - false_positive_rate: proportion of sequences w/no pathogen the test says has pathogen
-            
+        none.
+
         RETURNS:
         none. Plots each probability vector over time using pyplot.
         """
@@ -472,7 +406,7 @@ class Population():
         threat_prob = self.threatnet()
         
         temp_pop = self.pop[:,0:,][:,0] # isolates the aggregate population data from the population tensor
-        p_inf = np.zeros(nrows) # p_inf: percent of people who are not susceptible (A, I, Sy, or R)
+        p_inf = np.zeros(nrows) # p_inf: percent of people who are not susceptible (E, I, Sy, or R)
         p_symp = np.zeros(nrows)
         for i in range(nrows):
             p_inf[i] = (temp_pop[i][1]+temp_pop[i][2])/sum(temp_pop[0][0:5])
