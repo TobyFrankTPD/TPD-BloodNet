@@ -2,7 +2,7 @@ from simulation import Population
 import numpy as np
 
 tmax = 500 # total number of time steps
-N = 330000000 # population size
+N = 10000000 # population size
 initial_infected = 1 # TODO: Allow the infection to start in multiple communities
 
 #community_params: num_communities, initial_community_sizes movement_matrix
@@ -54,9 +54,9 @@ model_population.simulate()
 
 # model_population.plot_net()
 
-model_population.plot_sim()
+# model_population.plot_sim()
 
-
+model_population.test_nets(0.99)
 
 # List of Model Params:
 

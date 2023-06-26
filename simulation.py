@@ -10,7 +10,7 @@ import math
 #   - Make a population Class that stores the info instead of numpy arrays
 #   - add somewhere saying inf_time and symp_time can't be 0
 
-class Population(): 
+class Population():
     """Defines a population of individuals during a novel pandemic. Encodes relevant
     parameters and has a number of functions for SIR modeling and pathogen detection 
     analysis.
@@ -73,6 +73,8 @@ class Population():
         self.threat_params = threat_params
         self.astute_params = astute_params
         self.SIR_params = SIR_params
+
+    # METHODS FOR RUNNING AND VISUALIZING THE SIR SIMULATION
 
     def simulate(self, step_type="stochastic"):
         """Carries out a simulation of the model with the stated parameters,
@@ -248,6 +250,8 @@ class Population():
 
         plt.show()
 
+    # METHODS FOR RUNNING AND VISUALIZING VARIOUS SURVEILANCE METHODS' EFFICIENCIES
+
     def bloodnet(self, community_i=0):
         """Given a pop numpy matrix, calculates the probability of a bloodnet
         surveilance approach detecting the pathogen within the population.
@@ -341,16 +345,22 @@ class Population():
         for i in range(1, self.tmax+1):
             num_sick = (self.N - Sy[i]) * background_sick_rate + Sy[i]
             num_sequenced = np.random.binomial(num_sick, p_hospitalized*p_hospital_sequenced)
-            x = np.arange(0, num_sequenced)
 
-            p_x_positives_null = binom.sf(x, num_sequenced, false_positive_rate)
+            # If 10% of the population is sick, assume the pathogen has been detected.
+            # Added this in to speed up the computation, it is definitely an assumption though
+            if num_sequenced > self.N/100:
+                prob_detect[i] = 1
+            else:
+                x = np.arange(0, num_sequenced)
 
-            p_infected = (Sy[i])/num_sick #probability one person is infected out of the group of sequenced people
-            p_clean = 1 - p_infected
-            p_positive = true_positive_rate*p_infected + false_positive_rate*p_clean #probability a sequencing test will return a positive result
-            num_positive_tests = np.random.binomial(num_sequenced, p_positive)
+                p_x_positives_null = binom.sf(x, num_sequenced, false_positive_rate)
 
-            prob_detect[i] = 1-p_x_positives_null[round(num_positive_tests)]
+                p_infected = (Sy[i])/num_sick #probability one person is infected out of the group of sequenced people
+                p_clean = 1 - p_infected
+                p_positive = true_positive_rate*p_infected + false_positive_rate*p_clean #probability a sequencing test will return a positive result
+                num_positive_tests = np.random.binomial(num_sequenced, p_positive)
+
+                prob_detect[i] = 1-p_x_positives_null[round(num_positive_tests)]
 
         return prob_detect
 
@@ -461,3 +471,60 @@ class Population():
             plt.ylim([0,1])
             plt.legend()
             plt.show()  
+
+    # METHODS FOR RUNNING AND VISUALIZING PARAMETER SEARCHING
+
+    def day_of_detection(self, prob_detect, threshold):
+        """Given the output of a surveilance method (prob_detect), calculate
+        the day when the method detects the pathogen. This is defined as the
+        day when the probability of detection exceeds the threshold for seven conscutive
+        days.
+
+        ARGS:
+        prob_detect: a tmax x 1 numpy array storing the probability the method detects a pathogen for a given day
+        threshold: probability threshold that must be exceeded for seven consecutive days
+        
+        RETURNS:
+        day_of_detection: the day the method detects the pathogen, as defined above.
+        """
+        def threshold_checker(x):
+            return 1 if x > threshold else 0
+
+        v_thresh = np.vectorize(threshold_checker)
+        prob_detect = v_thresh(prob_detect)
+
+        for i in range(len(prob_detect)):
+            if 0 not in prob_detect[i:i+7]:
+                return i
+        
+        return self.tmax + 1
+
+
+    
+    def test_nets(self, threshold):
+        """Given a simulated population, calculates the day
+        when each surveilance system detects the pathogen.
+
+        ARGS:
+        threshold: probability threshold that must be exceeded for seven consecutive days
+
+        RETURNS:
+        None.
+        """
+        print("comparison start")
+        blood_prob = self.bloodnet()
+        print("blood prob done")
+        # community_blood_probs = self.bloodnet_community()
+        astute_prob = self.astutenet()
+        print("astute prob done")
+        threat_prob = self.threatnet()
+        print("threat prob done")
+
+        blood_prob_thresh = self.day_of_detection(blood_prob, threshold)
+        astute_prob_thresh = self.day_of_detection(astute_prob, threshold)
+        threat_prob_thresh = self.day_of_detection(threat_prob, threshold)
+
+        thresh_dict = {blood_prob_thresh: "bloodnet", astute_prob_thresh: "astutenet", threat_prob_thresh: "threatnet"}
+        best_net = min(blood_prob_thresh, astute_prob_thresh, threat_prob_thresh)
+
+        return [thresh_dict[best_net], best_net]
