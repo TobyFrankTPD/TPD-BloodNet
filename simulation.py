@@ -3,6 +3,7 @@ SIR model with susceptible, exposed, infectious, symptomatic, and recovered buck
 """
 import numpy as np
 import matplotlib.pyplot as plt
+import seaborn as sns
 from scipy.stats import binom
 import math
 
@@ -73,6 +74,9 @@ class Population():
         self.threat_params = threat_params
         self.astute_params = astute_params
         self.SIR_params = SIR_params
+
+    def set_threshold(self, threshold):
+        self.threshold = threshold
 
     # METHODS FOR RUNNING AND VISUALIZING THE SIR SIMULATION
 
@@ -348,19 +352,16 @@ class Population():
 
             # If 10% of the population is sick, assume the pathogen has been detected.
             # Added this in to speed up the computation, it is definitely an assumption though
-            if num_sequenced > self.N/100:
-                prob_detect[i] = 1
-            else:
-                x = np.arange(0, num_sequenced)
+            x = np.arange(0, num_sequenced+1)
 
-                p_x_positives_null = binom.sf(x, num_sequenced, false_positive_rate)
+            p_x_positives_null = binom.sf(x, num_sequenced, false_positive_rate)
 
-                p_infected = (Sy[i])/num_sick #probability one person is infected out of the group of sequenced people
-                p_clean = 1 - p_infected
-                p_positive = true_positive_rate*p_infected + false_positive_rate*p_clean #probability a sequencing test will return a positive result
-                num_positive_tests = np.random.binomial(num_sequenced, p_positive)
+            p_infected = (Sy[i])/num_sick #probability one person is infected out of the group of sequenced people
+            p_clean = 1 - p_infected
+            p_positive = true_positive_rate*p_infected + false_positive_rate*p_clean #probability a sequencing test will return a positive result
+            num_positive_tests = np.random.binomial(num_sequenced, p_positive)
 
-                prob_detect[i] = 1-p_x_positives_null[round(num_positive_tests)]
+            prob_detect[i] = 1-p_x_positives_null[num_positive_tests]
 
         return prob_detect
 
@@ -395,7 +396,6 @@ class Population():
             prob_detect[i] = p_investigation
         
         return prob_detect
-
 
     def plot_net(self):
         """Given a pop numpy matrix, calls different net methods and plots the
@@ -501,7 +501,7 @@ class Population():
 
 
     
-    def test_nets(self, threshold):
+    def test_nets(self):
         """Given a simulated population, calculates the day
         when each surveilance system detects the pathogen.
 
@@ -511,20 +511,32 @@ class Population():
         RETURNS:
         None.
         """
-        print("comparison start")
         blood_prob = self.bloodnet()
-        print("blood prob done")
         # community_blood_probs = self.bloodnet_community()
         astute_prob = self.astutenet()
-        print("astute prob done")
         threat_prob = self.threatnet()
-        print("threat prob done")
 
-        blood_prob_thresh = self.day_of_detection(blood_prob, threshold)
-        astute_prob_thresh = self.day_of_detection(astute_prob, threshold)
-        threat_prob_thresh = self.day_of_detection(threat_prob, threshold)
+        blood_prob_thresh = self.day_of_detection(blood_prob, self.threshold)
+        astute_prob_thresh = self.day_of_detection(astute_prob, self.threshold)
+        threat_prob_thresh = self.day_of_detection(threat_prob, self.threshold)
 
-        thresh_dict = {blood_prob_thresh: "bloodnet", astute_prob_thresh: "astutenet", threat_prob_thresh: "threatnet"}
+        # 0 = bloodnet, 1 = astutenet, 2 = threatnet
+        thresh_dict = {blood_prob_thresh: "B", astute_prob_thresh: "A", threat_prob_thresh: "T"}
         best_net = min(blood_prob_thresh, astute_prob_thresh, threat_prob_thresh)
 
         return [thresh_dict[best_net], best_net]
+    
+    def sequencing_param_tester(self):
+        best_net_list = np.chararray((10, 10), unicode=False)
+        best_net_values = np.zeros((10, 10))
+        for i in range(0, 10):
+            for j in range(0, 10):
+                print(i, j)
+                self.set_parameters([i/10, j/10], self.blood_params, self.threat_params, self.astute_params, self.SIR_params)
+                best_net_list[i][j], best_net_values[i][j] = self.test_nets()
+        
+        self.sequencing_heatmap = sns.heatmap(best_net_values, linewidth=0.5, annot=best_net_list, fmt="")
+        plt.title("Heatmap of Detection Methods with Varied Sequencing_Param")
+        plt.xlabel('False_positive_rate')
+        plt.ylabel('False_negative_rate')
+        plt.show()

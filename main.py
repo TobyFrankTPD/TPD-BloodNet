@@ -2,7 +2,7 @@ from simulation import Population
 import numpy as np
 
 tmax = 500 # total number of time steps
-N = 10000000 # population size
+N = 1000000 # population size
 initial_infected = 1 # TODO: Allow the infection to start in multiple communities
 
 #community_params: num_communities, initial_community_sizes movement_matrix
@@ -49,6 +49,7 @@ SIR_params = [0.5, 0.1, 21, 10]
 
 model_population = Population(N, initial_infected, tmax, community_params)
 model_population.set_parameters(sequencing_params, blood_params, threat_params, astute_params, SIR_params)
+model_population.set_threshold(0.99)
 
 model_population.simulate()
 
@@ -56,7 +57,7 @@ model_population.simulate()
 
 # model_population.plot_sim()
 
-model_population.test_nets(0.99)
+model_population.sequencing_param_tester()
 
 # List of Model Params:
 
@@ -69,12 +70,15 @@ model_population.test_nets(0.99)
 # all other params: 0 -> 1
 # true_positive_rate: [0,1]
 # false_positive_rate: [0,1]
+
 # p_donation: [0,1]
 # p_donation_to_bloodnet: [0,1]
 # background_sick_rate [0,1]
+
 # p_hospitalized: [0,1]
 # p_hospital_sequenced: [0,1]
 # p_doctor_detect: [0,1]
+
 # command_readiness: [0,1]
 
 # community params: N/A
