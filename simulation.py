@@ -2,10 +2,11 @@
 SIR model with susceptible, exposed, infectious, symptomatic, and recovered buckets.
 """
 import numpy as np
-import matplotlib.pyplot as plt
+from matplotlib import pyplot as plt, colors
 import seaborn as sns
 from scipy.stats import binom
 import math
+import pandas as pd
 
 # TODO:
 #   - Make a population Class that stores the info instead of numpy arrays
@@ -509,7 +510,7 @@ class Population():
         threshold: probability threshold that must be exceeded for seven consecutive days
 
         RETURNS:
-        None.
+        thresh_dict[best_net], best_net
         """
         blood_prob = self.bloodnet()
         # community_blood_probs = self.bloodnet_community()
@@ -537,6 +538,37 @@ class Population():
         
         self.sequencing_heatmap = sns.heatmap(best_net_values, linewidth=0.5, annot=best_net_list, fmt="")
         plt.title("Heatmap of Detection Methods with Varied Sequencing_Param")
-        plt.xlabel('False_positive_rate')
-        plt.ylabel('False_negative_rate')
+        plt.xlabel('True_positive_rate')
+        plt.ylabel('False_positive_rate')
+        plt.show()
+
+    def SIR_param_tester(self):
+        best_net_list = np.chararray((4, 4, 4, 4), unicode=True)
+        best_net_values = np.zeros((4, 4, 4, 4))
+
+        fig = plt.figure()
+        ax = fig.add_subplot(projection='3d')
+        color_dict = {"T": "green", "B": "red", "A": "blue"}
+        color_legend = {"T": "threatnet", "B": "bloodnet", "A": "astute doctor"}
+
+        for i in range(4):
+            for j in range(4):
+                for k in range(4):
+                    for l in range(4):
+                        beta, gamma, inf_time, symp_time = [0.5*2**i, (j+1)*0.2, 1+6*k, 1+6*l]
+                        print(beta, gamma, inf_time, symp_time)                
+                        self.set_parameters(self.sequencing_params, self.blood_params, self.threat_params, self.astute_params, [beta, gamma, inf_time, symp_time])
+                        self.simulate()
+                        best_net_list[i, j, k, l], best_net_values[i, j, k, l] = self.test_nets()
+
+                        ax.scatter(beta, gamma, inf_time-l, s=symp_time, alpha=0.4, c=color_dict[best_net_list[i, j, k, l]], marker='o', label=color_legend[best_net_list[i, j, k, l]])
+
+        plt.title("Scatterplot of Detection Methods with Varied SIR_params")
+        # plt.annotate("Size represents time to symptoms: [1, 7, 13, 19]", (0, 0))
+        ax.set_xlabel('infection rate')
+        ax.set_ylabel('recovery rate')
+        ax.set_zlabel('incubation period')
+        handles, labels = plt.gca().get_legend_handles_labels()
+        by_label = dict(zip(labels, handles))
+        plt.legend(by_label.values(), by_label.keys())
         plt.show()

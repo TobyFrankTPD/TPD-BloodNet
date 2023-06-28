@@ -57,7 +57,7 @@ model_population.simulate()
 
 # model_population.plot_sim()
 
-model_population.sequencing_param_tester()
+model_population.SIR_param_tester()
 
 # List of Model Params:
 
