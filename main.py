@@ -53,11 +53,11 @@ model_population.set_threshold(0.99)
 
 model_population.simulate()
 
-# model_population.plot_net()
+model_population.plot_net()
 
 # model_population.plot_sim()
 
-model_population.SIR_param_tester()
+# model_population.SIR_param_tester()
 
 # List of Model Params:
 
@@ -70,15 +70,12 @@ model_population.SIR_param_tester()
 # all other params: 0 -> 1
 # true_positive_rate: [0,1]
 # false_positive_rate: [0,1]
-
 # p_donation: [0,1]
 # p_donation_to_bloodnet: [0,1]
 # background_sick_rate [0,1]
-
 # p_hospitalized: [0,1]
 # p_hospital_sequenced: [0,1]
 # p_doctor_detect: [0,1]
-
 # command_readiness: [0,1]
 
 # community params: N/A
