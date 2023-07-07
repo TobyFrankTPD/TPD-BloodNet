@@ -11,7 +11,6 @@ from functools import reduce
 import copy
 
 # TODO:
-#   - Make a population Class that stores the info instead of numpy arrays
 #   - add somewhere saying inf_time and symp_time can't be 0
 
 class Population():
@@ -59,7 +58,7 @@ class Population():
         - p_asymp: probability that a symptomatic individual will not experience symptoms
         - mu: rate of death of symptomatic people
     """
-    def __init__(self, N = 100000, initial_infected = 1, tmax = 200, community_params = [1, [1], [1]]):
+    def __init__(self, N = 100000, initial_infected = 1, tmax = 150, community_params = [1, [1], [1]]):
         self.N = N
         self.tmax = tmax
         self.community_params = community_params
@@ -109,9 +108,15 @@ class Population():
             return
         for i in range(1, self.tmax+1):
             if step_type == "stochastic":
-                self.pop[i] = self.stochastic_SIRstep(self.pop, self.SIR_params, self.community_params, i)    
+                self.pop[i] = self.stochastic_SIRstep(self.pop, 
+                                                      self.SIR_params, 
+                                                      self.community_params, 
+                                                      i)    
             else:
-                self.pop[i] = self.deterministic_SIRstep(self.pop, self.SIR_params, self.community_params, i)
+                self.pop[i] = self.deterministic_SIRstep(self.pop, 
+                                                         self.SIR_params, 
+                                                         self.community_params, 
+                                                         i)
             self.bloodnet(i)
             self.bloodnet_community(i)
             self.threatnet(i)
@@ -208,7 +213,7 @@ class Population():
 
         for i in range(num_communities):
             S, E, I, Sy, Asy, R, D, TotI = pop[t-1][i+1][0:8]
-            N_i = sum([S, E, I, Sy, Asy, R])
+            N_i = sum([S, E, I, Sy, Asy, R, D])
 
             # calculate changes in population bins
             p_exposed = (beta*(I+Sy+Asy))/N_i
@@ -241,6 +246,8 @@ class Population():
             pop_t[i+1] = [S1, E1, I1, Sy1, Asy1, R1, D1, TotI1, new_exposed, new_infectious]
             pop_t[0] = [sum(x) for x in zip(pop_t[0], [S1, E1, I1, Sy1, Asy1, R1, D1, TotI1, new_exposed, new_infectious])]
 
+        # TODO: multiple communities is broken and probably can't be fixed unless I change inf_time and symp_time to rates
+
         pop_t_moved = np.dot(movement_matrix, pop_t[1:])
 
         output = np.vstack((pop_t[0], pop_t_moved))
@@ -260,7 +267,9 @@ class Population():
             - E
             - I
             - Sy
+            - Asy
             - R
+            - D
         """
         plt.figure()
         plt.grid()
@@ -303,7 +312,8 @@ class Population():
         p_donation, p_donation_to_bloodnet = self.blood_params
         true_positive_rate, false_positive_rate = self.sequencing_params
 
-        don_pop = self.N-temp_pop[t][3]
+        don_pop = self.N-temp_pop[t][3]-temp_pop[t][6]
+        infected_pop = temp_pop[t][1]+temp_pop[t][2]+temp_pop[t][4]
         num_samples = np.random.binomial(don_pop, p_donation * p_donation_to_bloodnet)
 
         if num_samples == 0:
@@ -315,7 +325,7 @@ class Population():
             #   In reality, there are true positives without an exponentially growing pathogen
             p_x_positives_null = binom.sf(x, num_samples, false_positive_rate) #probability distribution of obsering at least x positive results given no true positives
 
-            p_infected = (temp_pop[t][1]+temp_pop[t][2])/don_pop #probability one person is infected
+            p_infected = infected_pop/don_pop #probability one person is infected
             p_clean = 1 - p_infected
             p_positive = true_positive_rate*p_infected + false_positive_rate*p_clean #probability a sequencing test will return a positive result
             num_positive_tests = np.random.binomial(num_samples, p_positive)
@@ -339,12 +349,13 @@ class Population():
 
         for i in range(num_communities):
             temp_pop = self.pop[:,0:,][:,i] # isolates the desired population data from the population tensor
-            N_i = sum(temp_pop[0])
+            N_i = sum(temp_pop[t][0:7])
 
             p_donation, p_donation_to_bloodnet = self.blood_params
             true_positive_rate, false_positive_rate = self.sequencing_params
 
-            don_pop = N_i-temp_pop[t][3]
+            don_pop = N_i-temp_pop[t][3]-temp_pop[t][6]
+            infected_pop = temp_pop[t][1]+temp_pop[t][2]+temp_pop[t][4]
             num_samples = np.random.binomial(don_pop, p_donation * p_donation_to_bloodnet)
 
             if num_samples == 0:
@@ -356,7 +367,7 @@ class Population():
                 #   In reality, there are true positives without an exponentially growing pathogen
                 p_x_positives_null = binom.sf(x, num_samples, false_positive_rate) #probability distribution of obsering at least x positive results given no true positives
 
-                p_infected = (temp_pop[t][1]+temp_pop[t][2])/don_pop #probability one person is infected
+                p_infected = infected_pop/don_pop #probability one person is infected
                 p_clean = 1 - p_infected
                 p_positive = true_positive_rate*p_infected + false_positive_rate*p_clean #probability a sequencing test will return a positive result
                 num_positive_tests = np.random.binomial(num_samples, p_positive)
@@ -386,8 +397,9 @@ class Population():
         true_positive_rate, false_positive_rate = self.sequencing_params
 
         Sy = temp_pop[:,3]
+        D = temp_pop[:,6]
 
-        num_sick = (self.N - Sy[t]) * background_sick_rate + Sy[t]
+        num_sick = (self.N - Sy[t] - D[t]) * background_sick_rate + Sy[t]
         num_sequenced = np.random.binomial(num_sick, p_hospitalized*p_hospital_sequenced)
 
         # If 10% of the population is sick, assume the pathogen has been detected.
@@ -530,7 +542,7 @@ class Population():
         
         return self.tmax + 1
     
-    def test_nets(self, num_runs):
+    def test_nets(self, num_runs=5):
         """Given a simulated population, calculates the day
         when each surveilance system detects the pathogen.
 
@@ -562,7 +574,7 @@ class Population():
 
         return [["B", list_averages[0]], ["T", list_averages[1]], ["A", list_averages[2]]]
     
-    def sequencing_param_tester(self, num_rums):
+    def sequencing_param_tester(self, num_runs=5):
         """Runs multiple SIR simulations using varied sequencing
         parameters, and determines the fastest surveilance method 
         for each set of parameters. Then visualizes which surveilance
@@ -581,7 +593,7 @@ class Population():
             for j in range(9):
                 print(i, j)
                 self.set_parameters([i/10, (j+1)/10], self.blood_params, self.threat_params, self.astute_params, self.SIR_params)
-                test_nets = self.test_nets(num_rums)
+                test_nets = self.test_nets(num_runs)
                 best_net_list[i][j], best_net_values[i][j] = reduce(lambda x, y: x if x[1] < y[1] else y, test_nets)
         
         self.sequencing_heatmap = sns.heatmap(best_net_values, linewidth=0.5, annot=best_net_list, fmt="")
@@ -650,21 +662,78 @@ class Population():
         plt.legend(by_label.values(), by_label.keys(), title="Best surveilance method")
         plt.show()
 
+    def lockdowm_param_tester(self, num_runs=5):
+        """Runs multiple lockdown SIR simulations varying percent_reduced_infectivity,
+        then determines how fast each surveilance method detects the pathogen. Then,
+        calls simulate_with_lockdown to estimate the change in deaths between scenarios
+        wtih each surveilance method implemented, and visualizes deaths for each model
+        over the percent_reduced_infectivity space [0,1].
+
+        ARGS:
+        num_rums: number of runs to multiplex and average over 
+
+        RETURNS:
+        none. Plots a 2D plot visualizing deaths (y-axis) for each surveilance method
+        across percent_reduced_infectivity parameter space [0,1] (x-axis).
+        """
+        V = 20
+        lockdown_deaths = np.zeros((V, 3)) # we have three nets to test
+        for i in range(V):
+            self.set_parameters(self.sequencing_params, 
+                                self.blood_params, 
+                                self.threat_params, 
+                                self.astute_params, 
+                                self.SIR_params, 
+                                [self.lockdown_params[0], i/V])
+            for j in range(num_runs):
+                lockdown_dict_i = self.simulate_with_lockdown()
+                for key in lockdown_dict_i:
+                    if key == "bloodnet":
+                        lockdown_deaths[i][0] += lockdown_dict_i[key][0][:,:,6][:,0][-1]
+                    elif key == "threatnet":
+                        lockdown_deaths[i][1] += lockdown_dict_i[key][0][:,:,6][:,0][-1]
+                    elif key == "astutenet":
+                        lockdown_deaths[i][2] += lockdown_dict_i[key][0][:,:,6][:,0][-1]
+        
+        lockdown_deaths = np.divide(lockdown_deaths, num_runs)
+
+        plt.figure()
+        plt.grid()
+        plt.title("Deaths by model with varied reduced_infectivity")
+        plt.plot(np.linspace(0, 1, V), lockdown_deaths[:, 0], 'red', label='Bloodnet')
+        plt.plot(np.linspace(0, 1, V), lockdown_deaths[:, 1], 'blue', label='Threatnet')
+        plt.plot(np.linspace(0, 1, V), lockdown_deaths[:, 2], 'green', label='Astutenet')
+        plt.xlabel('% infectivity reduction after detection')
+        plt.ylabel('Numbers of deaths')
+        plt.ylim([0,np.amax(lockdown_deaths)])
+        plt.legend()
+
+        plt.show()
+
+        return
+
+
     # METHODS FOR ESTIMATING COST SAVINGS OF SURVEILANCE METHODS
 
-    # run simulation, adding a mortality rate
-    # as sim is running, check if day_of_detection returns the current day.
-    # if it does, then the pandemic is detected. Store the surveilance method that detected the pandemic and the day_of_detection
-    # when the pandemic is detected, run two different simulations: 
-    #   - one simulation has reduced infectivity based on parameters relating to government countermeasures
-    #   - the other simulation runs as normal, with other surveilance methods continuing to work
-    #       - when these surveilance methods detect the pathogen, then they also split off in this way
-    # at the end, compare the number of dead people between each simulation to estimate cost savings (using value of statistical life)
-    # multiplex and average
+    # TODO: multiplex and average
 
     def simulate_with_lockdown(self, step_type="stochastic"):
-        """
+        """Carries out a simulation of the model with the stated parameters,
+        creating pop numpy matrices for each community that store information 
+        about the simulated population/communities for each time step. Also
+        tracks if surveilance methods have detected the pathogen. When a method
+        detects a pathogen, the simulation forks: in one simulation, the pathogen
+        is "detected" and infectivity is reduced. In the other, the simulation
+        carries on as normal.
         
+        ARGS:
+        none.
+
+        RETURNS:
+        forked_dict: a dictionary of tuples. Each tuple contains a simulated population
+        and the day the pathogen was detected and the simulation was forked. The key of
+        each value is the surveilance method that detected the pathogen and thus forked
+        the simulation.
         """
         prob_list = [["bloodnet", self.blood_prob], 
                      ["astutenet", self.astute_prob], 
@@ -689,11 +758,7 @@ class Population():
                     forked_dict[prob[0]] = (self.forked_simulate(forked_pop, start=i), self.day_of_detection(prob[1]))
             # print(self.pop[:,:,6][:,0][i])
 
-        for key in forked_dict:
-            print(f'Model: {key:<10}, Day of Detection: {forked_dict[key][1]:<4}, Deaths before detection: {forked_dict[key][0][:,:,6][:,0][forked_dict[key][1]]:<8}, Infections before detection: {forked_dict[key][0][:,:,7][:,0][forked_dict[key][1]]:<8} Deaths: {forked_dict[key][0][:,:,6][:,0][-1]:<8}')
-            self.plot_sim(forked_dict[key][0], f'Detection using {key}')
-        print(f'Model: {"no model":<10}, Day of Detection: {"N/A":<4}, Deaths before detection: {"N/A":<8}, Infections before detection: {"N/A":<8} Deaths: {self.pop[:,:,6][:,0][-1]:<8}')
-        return
+        return forked_dict
     
     def forked_simulate(self, pop, step_type="stochastic", start=1):
         """
@@ -706,7 +771,6 @@ class Population():
         p_stay_at_home, percent_reduced_infectivity = self.lockdown_params
         forked_SIR_params = copy.deepcopy(self.SIR_params)
         forked_SIR_params[0] *= percent_reduced_infectivity
-        print(pop[:,:,6][:,0][start], forked_SIR_params[0])
 
         for i in range(start, self.tmax+1):
             if step_type == "stochastic":
@@ -715,3 +779,12 @@ class Population():
                 pop[i] = self.deterministic_SIRstep(pop, forked_SIR_params, self.community_params, i)
 
         return pop
+    
+    def plot_lockdown_simulations(self):
+        forked_dict = self.simulate_with_lockdown()
+        for key in forked_dict:
+            print(f'Model: {key:<10}, Day of Detection: {int(forked_dict[key][1]):<4}, Deaths before detection: {int(forked_dict[key][0][:,:,6][:,0][forked_dict[key][1]]):<8}, Infections before detection: {int(forked_dict[key][0][:,:,7][:,0][forked_dict[key][1]]):<8} Deaths: {int(forked_dict[key][0][:,:,6][:,0][-1]):<8}')
+            self.plot_sim(forked_dict[key][0], f'Detection using {key}')
+        print(f'Model: {"no model":<10}, Day of Detection: {"N/A":<4}, Deaths before detection: {"N/A":<8}, Infections before detection: {"N/A":<8} Deaths: {self.pop[:,:,6][:,0][-1]:<8}')
+        self.plot_sim(self.pop, "Epidemiological Model, Total Population Over Time")
+
