@@ -1,7 +1,7 @@
 from simulation import Population
 import numpy as np
 
-tmax = 500 # total number of time steps
+tmax = 150 # total number of time steps
 N = 1000000 # population size
 initial_infected = 1 # TODO: Allow the infection to start in multiple communities
 
@@ -42,20 +42,30 @@ threat_params = [0.001, p_hospitalized, 0.2]
 #   command_readiness: likelihood of a doctor's report being picked up by the system
 astute_params = [p_hospitalized, 0.01, 0.1]
 
-#SIR_params: beta, gamma, inf_time, symp_time, N
-SIR_params = [0.5, 0.1, 21, 10]
+#SIR_params: beta, gamma, inf_time, symp_time, p_asymp, mu
+SIR_params = [0.35, 0.035, 4, 2, 0.1, 0.01]
+
+#lockdown_params: p_stay_at_home, percent_reduced_infectivity
+lockdown_params = [0.3, 0.35]
+
+#detection_params: threshold, time_delay
+detection_params = [0.99, 7]
 
 
 
 model_population = Population(N, initial_infected, tmax, community_params)
-model_population.set_parameters(sequencing_params, blood_params, threat_params, astute_params, SIR_params)
-model_population.set_threshold(0.99)
+model_population.set_parameters(sequencing_params, blood_params, threat_params, astute_params, SIR_params, lockdown_params)
+model_population.set_detection_params(detection_params)
 
-model_population.simulate()
+# model_population.simulate()
 
-model_population.plot_net()
+model_population.simulate_with_lockdown()
 
-# model_population.plot_sim()
+# model_population.plot_net()
+
+model_population.plot_sim(model_population.pop, "Epidemiological Model, Total Population Over Time")
+
+# model_population.sequencing_param_tester(3)
 
 # model_population.SIR_param_tester()
 
