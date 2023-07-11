@@ -78,7 +78,7 @@ class Population():
         self.astute_prob = np.zeros(self.tmax+1)
         self.community_blood_probs = np.zeros((num_communities, self.tmax+1))
 
-    def set_parameters(self, sequencing_params, blood_params, threat_params, astute_params, SIR_params, lockdown_params):
+    def set_all_parameters(self, sequencing_params, blood_params, threat_params, astute_params, SIR_params, lockdown_params):
         self.sequencing_params = sequencing_params
         self.blood_params = blood_params
         self.threat_params = threat_params
@@ -88,6 +88,9 @@ class Population():
 
     def set_detection_params(self, detection_params):
         self.threshold, self.time_delay = detection_params
+
+    def set_SIR_params(self, SIR_params):
+        self.SIR_params = SIR_params
 
     # METHODS FOR RUNNING AND VISUALIZING THE SIR SIMULATION
 
@@ -386,7 +389,7 @@ class Population():
         positive is high enough to reject the null hypothesis of no true positives.
         
         ARGS:
-        none.
+        community_i: instructions for which community to use for calculations. Default is total population
 
         RETURNS:
         None. For each time step, stores the probability of a threatnet model
@@ -443,6 +446,27 @@ class Population():
         p_investigation = 1 / (1 + (50/chi) * math.e**(-2 * chi * num_hospital_reports))
 
         self.astute_prob[t] = p_investigation
+
+    def wastenet(self, t, community_i=0):
+        """Given a pop numpy matrix, calculates the probability of a wastewater
+        sequencing system detecting a novel pathogen.
+
+        Every day, wastewater is collected from filtration plants. This wastewater
+        contains some viral particles from fecal shedding, which is then detected
+        via sequencing processed wastewater samples. Positive sequencing results may
+        occur even when no pathogen is present. When positive tests increase, the 
+        chance of a true positive goes up. At some point, the chance of a true 
+        positive is high enough to reject the null hypothesis of no true positives.
+
+        ARGS:
+        community_i: instructions for which community to use for calculations. Default is total population
+
+        RETURNS:
+        none.
+        """
+
+        temp_pop = self.pop[:,0:,][:,community_i] # isolates the desired population data from the population tensor
+        return
 
     def plot_net(self):
         """Given a pop numpy matrix, calls different net methods and plots the
@@ -592,7 +616,7 @@ class Population():
         for i in range(10):
             for j in range(9):
                 print(i, j)
-                self.set_parameters([i/10, (j+1)/10], self.blood_params, self.threat_params, self.astute_params, self.SIR_params)
+                self.set_all_parameters([i/10, (j+1)/10], self.blood_params, self.threat_params, self.astute_params, self.SIR_params)
                 test_nets = self.test_nets(num_runs)
                 best_net_list[i][j], best_net_values[i][j] = reduce(lambda x, y: x if x[1] < y[1] else y, test_nets)
         
@@ -641,7 +665,7 @@ class Population():
                     for l in range(V):
                         beta, gamma, inf_time, p_asymp = [beta_values[i], gamma_values[j], inf_time_values[k], p_asymp_values[l]]
                         print(beta, gamma, inf_time, p_asymp)
-                        self.set_parameters(self.sequencing_params, self.blood_params, self.threat_params, self.astute_params, [beta, gamma, inf_time, sympt_time_placeholder, p_asymp])
+                        self.set_all_parameters(self.sequencing_params, self.blood_params, self.threat_params, self.astute_params, [beta, gamma, inf_time, sympt_time_placeholder, p_asymp])
 
                         # store the best-performing
                         test_nets = self.test_nets(num_runs)
@@ -679,7 +703,7 @@ class Population():
         V = 20
         lockdown_deaths = np.zeros((V, 3)) # we have three nets to test
         for i in range(V):
-            self.set_parameters(self.sequencing_params, 
+            self.set_all_parameters(self.sequencing_params, 
                                 self.blood_params, 
                                 self.threat_params, 
                                 self.astute_params, 
@@ -717,7 +741,7 @@ class Population():
 
     # TODO: multiplex and average
 
-    def simulate_with_lockdown(self, step_type="stochastic"):
+    def simulate_with_lockdown(self, step_type="stochastic", vaccine_deploy_date=150):
         """Carries out a simulation of the model with the stated parameters,
         creating pop numpy matrices for each community that store information 
         about the simulated population/communities for each time step. Also
@@ -727,7 +751,9 @@ class Population():
         carries on as normal.
         
         ARGS:
-        none.
+        step_type: determines whether steps should be calculated deterministically or stochastically.
+            - Valid inputs: "stochastic" or "deterministic"
+        vaccine_deploy_date: number of days after detection that a vaccine is deployed, reducing the death rate
 
         RETURNS:
         forked_dict: a dictionary of tuples. Each tuple contains a simulated population
@@ -755,24 +781,50 @@ class Population():
             for prob in prob_list:
                 if self.day_of_detection(prob[1]) == i: # check if 
                     forked_pop = copy.deepcopy(self.pop)
-                    forked_dict[prob[0]] = (self.forked_simulate(forked_pop, start=i), self.day_of_detection(prob[1]))
+                    forked_dict[prob[0]] = (self.forked_simulate(forked_pop, vaccine_deploy_date, start=i), self.day_of_detection(prob[1]))
             # print(self.pop[:,:,6][:,0][i])
 
         return forked_dict
     
-    def forked_simulate(self, pop, step_type="stochastic", start=1):
-        """
-        
+    def forked_simulate(self, pop, vaccine_deploy_date, step_type="stochastic", start=1):
+        """Runs a forked simulation of the Population's self.pop after a pathogen has
+        been detected. This simulation has reduced infectivity from quarantine mandates,
+        and after vaccine_deploy_date days will have 99% reduced death rate from deployment
+        of vaccines.
+
+        ARGS:
+        pop: 3D numpy array. Values for each population bin at the current time step
+            - S: susceptible population
+            - E: exposed population with the disease who aren't infectious
+            - I: infectious population that isn't symptomatic
+            - Sy: symptomatic population
+            - R: recovered population
+            - D: dead population
+            - TotI: total population with the disease
+            - new_exposed: newly exposed individuals in the population
+            - new_infectious: newly infected individuals in the population
+        vaccine_deploy_date: number of days after detection that a vaccine is deployed, reducing the death rate
+        step_type: determines whether steps should be calculated deterministically or stochastically.
+            - Valid inputs: "stochastic" or "deterministic"
+        start: the day at which the forked simulation should start
+
+        RETURNS:
+        pop: an updated version of the original pop numpy array post-simulation
         """
         if step_type not in ["stochastic","deterministic"]:
             print("Error: You have input an invalid type for step_type. Please input either 'stochastic' or 'deterministic'.")
             return
         
         p_stay_at_home, percent_reduced_infectivity = self.lockdown_params
-        forked_SIR_params = copy.deepcopy(self.SIR_params)
+        forked_SIR_params = list(copy.deepcopy(self.SIR_params))
         forked_SIR_params[0] *= percent_reduced_infectivity
 
         for i in range(start, self.tmax+1):
+            if i == vaccine_deploy_date + start:
+                vaccine_SIR_params = list(copy.deepcopy(forked_SIR_params))
+                # vaccine_SIR_params[0] *= 0.01 # set infectivity to 0 (not implemented rn because vaccines tend to not reduce infectivity)
+                vaccine_SIR_params[5] *= 0.01 # set death rate to 0
+                forked_SIR_params = vaccine_SIR_params
             if step_type == "stochastic":
                 pop[i] = self.stochastic_SIRstep(pop, forked_SIR_params, self.community_params, i)    
             else:
@@ -781,10 +833,24 @@ class Population():
         return pop
     
     def plot_lockdown_simulations(self):
+        """Calls simulate_with_lockdown, then plots the control case (no detection)
+        against each forked detection simulation. Also prints the following statistics
+        for each plot:
+            - Model name
+            - Day of detection
+            - Deaths before detection
+            - Infections before detection
+            - Total deaths in simulation
+
+        ARGS:
+        none.
+
+        RETURNS:
+        none.
+        """
         forked_dict = self.simulate_with_lockdown()
         for key in forked_dict:
             print(f'Model: {key:<10}, Day of Detection: {int(forked_dict[key][1]):<4}, Deaths before detection: {int(forked_dict[key][0][:,:,6][:,0][forked_dict[key][1]]):<8}, Infections before detection: {int(forked_dict[key][0][:,:,7][:,0][forked_dict[key][1]]):<8} Deaths: {int(forked_dict[key][0][:,:,6][:,0][-1]):<8}')
             self.plot_sim(forked_dict[key][0], f'Detection using {key}')
         print(f'Model: {"no model":<10}, Day of Detection: {"N/A":<4}, Deaths before detection: {"N/A":<8}, Infections before detection: {"N/A":<8} Deaths: {self.pop[:,:,6][:,0][-1]:<8}')
         self.plot_sim(self.pop, "Epidemiological Model, Total Population Over Time")
-
