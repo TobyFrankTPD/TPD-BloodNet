@@ -40,7 +40,7 @@ threat_params = (0.001, p_hospitalized, 0.2)
 #   p_hospitalized: the proportion of symptomatic people who go to a hospital
 #   p_doctor_detect: the probability that a doctor reports a symptomatic case as a new pathogen
 #   command_readiness: likelihood of a doctor's report being picked up by the system
-astute_params = (p_hospitalized, 0.1, 0.1)
+astute_params = (p_hospitalized, 0.7, 0.5)
 
 #SIR_params: beta, gamma, inf_time, symp_time, p_asymp, mu
 SIR_params = (0.35, 1/21, 4, 2, 0.1, 0.01)
@@ -54,8 +54,7 @@ detection_params = (0.99, 4)
 
 
 model_population = Population(N, initial_infected, tmax, community_params)
-model_population.set_all_parameters(sequencing_params, blood_params, threat_params, astute_params, SIR_params, lockdown_params)
-model_population.set_detection_params(detection_params)
+model_population.set_all_params(sequencing_params, blood_params, threat_params, astute_params, SIR_params, lockdown_params, detection_params)
 
 # model_population.simulate()
 
