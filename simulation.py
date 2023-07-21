@@ -58,13 +58,14 @@ class Population():
         - p_asymp: probability that a symptomatic individual will not experience symptoms
         - mu: rate of death of symptomatic people
     """
-    def __init__(self, N = 100000, initial_infected = 1, tmax = 365, community_params = [1, [1], [1]]):
+    def __init__(self, N = 100000, initial_infected = 1, tmax = 365, population_bins = 10, community_params = [1, [1], [1]]):
         self.N = N
         self.tmax = tmax
         self.community_params = community_params
         num_communities, initial_community_sizes, movement_matrix = self.community_params
+        self.NUM_BINS = len(population_bins)
 
-        self.pop = np.zeros((self.tmax+1, num_communities+1, 10))
+        self.pop = np.zeros((self.tmax+1, num_communities+1, self.NUM_BINS))
         self.pop[0][0] = [N-1, 0, 1, 0, 0, 0, 0, 1, 0, 0]
         for i in range(num_communities):
             infected_i = initial_infected if i == 0 else 0
@@ -219,7 +220,7 @@ class Population():
         """
         beta, gamma, inf_time, symp_time, p_asymp, mu = params
         num_communities, initial_community_sizes, movement_matrix = community_params
-        pop_t = np.zeros((num_communities+1, 10))
+        pop_t = np.zeros((num_communities+1, self.NUM_BINS))
 
         for i in range(num_communities):
             S, E, I, Sy, Asy, R, D, TotI = pop[t-1][i+1][0:8]
@@ -231,6 +232,9 @@ class Population():
             new_Sy_recovered = np.random.binomial(Sy, gamma)
             new_Asy_recovered = np.random.binomial(Asy, gamma)
             new_dead = np.random.binomial(Sy, mu)
+            if new_dead + new_Sy_recovered > Sy:
+                new_dead = Sy - new_Sy_recovered # this prevents Sy from becoming negative
+
             if t < inf_time: # prevents indexing error
                 new_infectious = 0
             else:
@@ -242,8 +246,6 @@ class Population():
                 new_symptomatic = np.random.binomial(pop[t-symp_time][i+1][9], 1-p_asymp)
                 new_asymptomatic = pop[t-symp_time][i+1][9] - new_symptomatic
             
-            pop_moved = np.dot(N_i, movement_matrix[i])
-
             # update population bins
             S1 = S-new_exposed
             E1 = E+new_exposed-new_infectious
@@ -264,7 +266,7 @@ class Population():
 
         return output
 
-    def plot_sim(self, pop, title):
+    def plot_pop(self, pop, title, community_i=0):
         """Given a pop numpy matrix, plots relevant information about the population
         using matplotlib.
         
@@ -284,19 +286,24 @@ class Population():
         plt.figure()
         plt.grid()
         plt.title(title)
-        plt.plot(self.t, pop[:,:,0][:,0], 'orange', label='Susceptible')
-        plt.plot(self.t, pop[:,:,1][:,0], 'blue', label='Exposed')
-        plt.plot(self.t, pop[:,:,2][:,0], 'r', label='Infectious')
-        plt.plot(self.t, pop[:,:,3][:,0], 'g', label='Symptomatic')
-        plt.plot(self.t, pop[:,:,4][:,0], 'purple', label='Asymptomatic')
-        plt.plot(self.t, pop[:,:,5][:,0], 'yellow', label='Recovered')
-        plt.plot(self.t, pop[:,:,6][:,0], 'black', label='Dead')
+        plt.plot(self.t, pop[:,:,0][:,community_i], 'orange', label='Susceptible')
+        plt.plot(self.t, pop[:,:,1][:,community_i], 'blue', label='Exposed')
+        plt.plot(self.t, pop[:,:,2][:,community_i], 'r', label='Infectious')
+        plt.plot(self.t, pop[:,:,3][:,community_i], 'g', label='Symptomatic')
+        plt.plot(self.t, pop[:,:,4][:,community_i], 'purple', label='Asymptomatic')
+        plt.plot(self.t, pop[:,:,5][:,community_i], 'yellow', label='Recovered')
+        plt.plot(self.t, pop[:,:,6][:,community_i], 'black', label='Dead')
         plt.xlabel('Time t, [days]')
         plt.ylabel('Numbers of individuals')
         plt.ylim([0,self.N])
         plt.legend()
 
         plt.show()
+
+    def plot_sim(self):
+        num_communities, initial_community_sizes, movement_matrix = self.community_params
+        for i in range(num_communities+1):
+            self.plot_pop(self.pop, f'Community {i}', i)
 
     # METHODS FOR RUNNING AND VISUALIZING VARIOUS SURVEILANCE METHODS' EFFICIENCIES
 
@@ -409,8 +416,11 @@ class Population():
         Sy = temp_pop[:,3]
         D = temp_pop[:,6]
 
-        num_sick = (self.N - Sy[t] - D[t]) * background_sick_rate + Sy[t]
-        num_sequenced = np.random.binomial(num_sick, p_hospitalized*p_hospital_sequenced)
+        num_sick_false = (self.N - Sy[t] - D[t]) * background_sick_rate
+        num_sick_true = Sy[t]
+        num_sequenced_false = np.random.binomial(num_sick_false, p_hospitalized*p_hospital_sequenced)
+        num_sequenced_true = np.random.binomial(num_sick_true, p_hospitalized*p_hospital_sequenced)
+        num_sequenced = num_sequenced_false + num_sequenced_true
 
         # If 10% of the population is sick, assume the pathogen has been detected.
         # Added this in to speed up the computation, it is definitely an assumption though
@@ -418,9 +428,12 @@ class Population():
 
         p_x_positives_null = binom.sf(x, num_sequenced, false_positive_rate)
 
-        p_infected = (Sy[t])/num_sick #probability one person is infected out of the group of sequenced people
-        p_clean = 1 - p_infected
-        p_positive = true_positive_rate*p_infected + false_positive_rate*p_clean #probability a sequencing test will return a positive result
+        # p_infected = (Sy[t])/(num_sick_true+num_sick_false) #probability one person is infected out of the group of sequenced people
+        # p_clean = 1 - p_infected
+        if num_sequenced == 0:
+            p_positive = 0
+        else:
+            p_positive = true_positive_rate*(num_sequenced_true/num_sequenced) + false_positive_rate*(num_sequenced_false/num_sequenced) #probability a sequencing test will return a positive result
         num_positive_tests = np.random.binomial(num_sequenced, p_positive)
 
         self.threat_prob[t] = 1-p_x_positives_null[num_positive_tests]
@@ -432,7 +445,8 @@ class Population():
         When people get sick, they sometimes go to the hospital. These people are
         seen by doctors, and if enough people have novel symptoms then an astute
         doctor might realize there is something going on. If the doctor raises
-        the alarm and their alarm is heard, then the new pathogen is detected.
+        the alarm, then there is a chance every day that authorities will act
+        on the alarm, initiating some countermeasures.
 
         ARGS:
         community_i: instructions for which community to use for calculations. Default is total population
@@ -441,7 +455,7 @@ class Population():
         None. For each time step, stores the probability of a threatnet model
         detecting the pathogen in self.astute_prob
         """
-        p_hospitalized, p_doctor_detect, chi = self.astute_params
+        p_hospitalized, p_doctor_detect, command_readiness = self.astute_params
         temp_pop = self.pop[:,0:,][:,community_i] # isolates the desired population data from the population tensor
 
         Sy = temp_pop[:,3]
@@ -450,9 +464,15 @@ class Population():
         num_hospital_reports = np.random.binomial(num_symp_hospitalized, p_doctor_detect)
 
         # not stochastic, can make it stochastic w/a cdf. This function is very arbitrary and BOTEC
-        p_investigation = 1 / (1 + (50/chi) * math.e**(-2 * chi * num_hospital_reports))
+        if t == 0:
+            prob_response = 0
+        else:
+            if self.astute_prob[t-1] == 1:
+                prob_response = 1
+            else:
+                prob_response = min(np.random.binomial(num_hospital_reports, command_readiness), 1)
 
-        self.astute_prob[t] = p_investigation
+        self.astute_prob[t] = prob_response
 
     def wastenet(self, t, community_i=0):
         """Given a pop numpy matrix, calculates the probability of a wastewater
@@ -476,6 +496,10 @@ class Population():
 
         infected_pop = sum(temp_pop[t][1:5]) # everyone who could be fecal shedding
         
+
+        return
+    
+    def aerosolnet(self):
 
         return
 
@@ -626,7 +650,7 @@ class Population():
         best_net_values = np.zeros((10, 9))
         for i in range(10):
             for j in range(9):
-                print(i, j)
+                print(i,j)
                 self.set_sequencing_params((i/10, (j+1)/10))
                 test_nets = self.test_nets(num_runs)
                 best_net_list[i][j], best_net_values[i][j] = reduce(lambda x, y: x if x[1] < y[1] else y, test_nets)
@@ -675,7 +699,6 @@ class Population():
                 for k in range(V):
                     for l in range(V):
                         beta, gamma, inf_time, p_asymp = [beta_values[i], gamma_values[j], inf_time_values[k], p_asymp_values[l]]
-                        print(beta, gamma, inf_time, p_asymp)
                         self.set_SIR_params((beta, gamma, inf_time, sympt_time_placeholder, p_asymp))
 
                         # store the best-performing
@@ -788,7 +811,6 @@ class Population():
                 if self.day_of_detection(prob[1]) == i: # check if 
                     forked_pop = copy.deepcopy(self.pop)
                     forked_dict[prob[0]] = (self.forked_simulate(forked_pop, vaccine_deploy_date, start=i), self.day_of_detection(prob[1]))
-            # print(self.pop[:,:,6][:,0][i])
 
         return forked_dict
     
@@ -821,9 +843,9 @@ class Population():
             print("Error: You have input an invalid type for step_type. Please input either 'stochastic' or 'deterministic'.")
             return
         
-        p_stay_at_home, percent_reduced_infectivity = self.lockdown_params
+        p_stay_at_home, scaled_infectivity = self.lockdown_params
         forked_SIR_params = list(copy.deepcopy(self.SIR_params))
-        forked_SIR_params[0] *= percent_reduced_infectivity
+        forked_SIR_params[0] *= scaled_infectivity
 
         for i in range(start, self.tmax+1):
             if i == vaccine_deploy_date + start:
@@ -852,13 +874,42 @@ class Population():
         none.
 
         RETURNS:
-        none.
+        forked_dict: output from simulate_with_lockdown() call
         """
-        VSL = 11.4 * 10**7
+        VSL = 1.14 * 10**7
         forked_dict = self.simulate_with_lockdown()
         for key in forked_dict:
-            print(f'Model: {key:<10}, Day of Detection: {int(forked_dict[key][1]):<4}, Deaths before detection: {int(forked_dict[key][0][:,:,6][:,0][forked_dict[key][1]]):<8}, Deaths: {int(forked_dict[key][0][:,:,6][:,0][-1]):<8}, Cost Savings Est ($T): {VSL * int(self.pop[:,:,6][:,0][-1] - forked_dict[key][0][:,:,6][:,0][-1]) / 1000000000000}')
-            #  nfections before detection: {int(forked_dict[key][0][:,:,7][:,0][forked_dict[key][1]]):<8} 
-            self.plot_sim(forked_dict[key][0], f'Detection using {key}')
+            print(f'Model: {key:<10}, Day of Detection: {int(forked_dict[key][1]):<4}, Deaths before detection: {int(forked_dict[key][0][:,:,6][:,0][forked_dict[key][1]]):<8}, Deaths: {int(forked_dict[key][0][:,:,6][:,0][-1]):<8}, Cost Savings Est ($B): {VSL * int(self.pop[:,:,6][:,0][-1] - forked_dict[key][0][:,:,6][:,0][-1]) / 1000000000}')
+            #  infections before detection: {int(forked_dict[key][0][:,:,7][:,0][forked_dict[key][1]]):<8} 
+            self.plot_pop(forked_dict[key][0], f'Detection using {key}')
         print(f'Model: {"no model":<10}, Day of Detection: {"N/A":<4}, Deaths before detection: {"N/A":<8}, Deaths: {self.pop[:,:,6][:,0][-1]:<8}')
-        self.plot_sim(self.pop, "Epidemiological Model, Total Population Over Time")
+        self.plot_pop(self.pop, "Epidemiological Model, Total Population Over Time")
+        return forked_dict
+    
+    def one_day_market_shaping(self, step_type="stochastic", vaccine_deploy_date=150):
+        forked_list = []
+
+        if step_type not in ["stochastic","deterministic"]:
+            print("Error: You have input an invalid type for step_type. Please input either 'stochastic' or 'deterministic'.")
+            return
+        for i in range(1, self.tmax+1):
+            if step_type == "stochastic":
+                self.pop[i] = self.stochastic_SIRstep(self.pop, self.SIR_params, self.community_params, i)    
+            else:
+                self.pop[i] = self.deterministic_SIRstep(self.pop, self.SIR_params, self.community_params, i)
+            if i <= 200:
+                forked_pop = copy.deepcopy(self.pop)
+                forked_list.append(self.forked_simulate(forked_pop, vaccine_deploy_date, start=i))
+
+        return forked_list
+    
+    def plot_one_day_market_shaping(self):
+        VSL = 1.14 * 10**7
+        min, max = 0, 200
+        forked_list = self.one_day_market_shaping()
+        net_cost_saved_list = np.zeros((max-min, 1)) # saved money in $B
+        for i in range(min, max-2):
+                net_cost_saved = (forked_list[i+1-min][:,:,6][:,0][-1] - forked_list[i-min][:,:,6][:,0][-1]) * VSL / 1000000000
+                net_cost_saved_list[i-min] = net_cost_saved
+
+        return net_cost_saved_list

@@ -1,9 +1,14 @@
 from simulation import Population
 import numpy as np
+import seaborn as sns
+from matplotlib import pyplot as plt
+
+#   MUTABLE PARAMS, USER CAN CHANGE
 
 tmax = 1000 # total number of time steps
-N = 1000000 # population size
+N = 332000000 # population size
 initial_infected = 1 # TODO: Allow the infection to start in multiple communities
+population_bins = ["S", "E", "I", "Sy", "Asy", "R", "D", "TotI", "new_exposed", "new_inf"]
 
 #community_params: num_communities, initial_community_sizes movement_matrix
 initial_community_sizes = [1]
@@ -19,9 +24,22 @@ movement_matrix = [1]
 
 community_params = (num_communities, initial_community_sizes, movement_matrix)
 
+#lockdown_params: p_stay_at_home, scaled_infectivity
+lockdown_params = (0, 0.2)
+
+#detection_params: threshold, time_delay
+detection_params = (0.99, 4)
+
+#SIR_params: beta, gamma, inf_time, symp_time, p_asymp, mu
+SIR_params = (0.35, 1/21, 4, 21, 0.01, 0.1)
+
+p_hospitalized = 0.08 # hospitalization rate depends upon the severity of the virus
+
+#   IMMUTABLE PARAMS, FINE-TUNED FOR ACCURACY
+
 #sequencing_params: true_positive_rate, false_positive_rate
 #   Note: false_positive_rate includes samples with no pathogen detected as having a pathogen, and samples with a pathogen but not the pathogen that is exponentially growing
-sequencing_params = (0.95, 0.1)
+sequencing_params = (0.99, 0.01)
 #true_positive_rate: proportion of sequences w/pathogen the test detects (also called statistical power)
 #false_positive_rate: proportion of sequences w/out pathogen of interest that the test says has a pathogen
 
@@ -33,36 +51,53 @@ blood_params = (p_donation, 1)
 #   background_sick_rate: the proportion of people who are sick with a non-exponentially-growing pathogen
 #   p_hospitalized: the proportion of symptomatic people who go to a hospital
 #   p_hospital_sequenced: the probability of a hospitalized person getting sequenced
-p_hospitalized = 0.2
-threat_params = (0.001, p_hospitalized, 0.2)
+background_sick_rate = 8.1 / 365 / 332
+threat_params = (background_sick_rate, p_hospitalized, 0.2)
 
 #astute_params: p_hospitalized, p_doctor_detect, command_readiness
 #   p_hospitalized: the proportion of symptomatic people who go to a hospital
 #   p_doctor_detect: the probability that a doctor reports a symptomatic case as a new pathogen
-#   command_readiness: likelihood of a doctor's report being picked up by the system
-astute_params = (p_hospitalized, 0.7, 0.5)
+#   command_readiness: likelihood of a doctor's report leading to a substantial pandemic response
+astute_params = (p_hospitalized, 0.2, 0.05)
 
-#SIR_params: beta, gamma, inf_time, symp_time, p_asymp, mu
-SIR_params = (0.35, 1/21, 4, 2, 0.1, 0.01)
-
-#lockdown_params: p_stay_at_home, percent_reduced_infectivity
-lockdown_params = (0.3, 0.2)
-
-#detection_params: threshold, time_delay
-detection_params = (0.99, 4)
-
-
-
-model_population = Population(N, initial_infected, tmax, community_params)
+model_population = Population(N, initial_infected, tmax, population_bins, community_params)
 model_population.set_all_params(sequencing_params, blood_params, threat_params, astute_params, SIR_params, lockdown_params, detection_params)
 
 # model_population.simulate()
 
 # model_population.plot_net()
 
-model_population.plot_lockdown_simulations()
+# for i in range(5):
+#     model_population.plot_lockdown_simulations()
 
-model_population.plot_sim(model_population.pop, "Epidemiological Model, Total Population Over Time")
+t_run = 200
+average_one_day = np.zeros((t_run,1))
+num_runs = 50
+
+for i in range(num_runs):
+    print(i)
+    one_day_i = model_population.plot_one_day_market_shaping()
+    average_one_day = np.add(average_one_day, one_day_i)
+
+average_one_day = np.divide(average_one_day, num_runs)
+average_one_day = np.round(average_one_day, 2)
+
+np.set_printoptions(threshold=np.inf)
+for i in range(len(average_one_day)):
+    print(f'Day {i}: {average_one_day[i]}')
+
+infectious = np.divide(model_population.pop[:,:,2][:,0][0:200], np.amax(model_population.pop[:,:,2][:,0][0:200])/np.amax(average_one_day))
+dead = np.divide(model_population.pop[:,:,6][:,0][0:200], np.amax(model_population.pop[:,:,6][:,0][0:200])/np.amax(average_one_day))
+
+plt.plot(range(t_run), np.multiply(average_one_day, 1), 'orange', label='Cost Estimate $B')
+plt.plot(range(t_run), infectious, 'red', label='Infectious population')
+plt.plot(range(t_run), dead, 'black', label='Dead population')
+plt.legend()
+plt.xlabel("Day of Detection")
+plt.ylabel("Cost Estimate ($B) of One Day Later")
+plt.show()
+
+# model_population.plot_sim(model_population.pop, "Epidemiological Model, Total Population Over Time")
 
 # model_population.sequencing_param_tester(3)
 
