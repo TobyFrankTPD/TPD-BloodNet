@@ -14,15 +14,17 @@ import copy
 #   - add somewhere saying inf_time and symp_time can't be 0
 
 class Population():
-    """Defines a population of individuals during a novel pandemic. Encodes relevant
-    parameters and has a number of functions for SIR modeling and pathogen detection 
-    analysis.
+    """Defines a population of individuals during a novel pandemic. Encodes 
+    relevant parameters and has a number of functions for SIR modeling and 
+    pathogen detection analysis.
 
     IMPORTANT PARAMETERS:
     N: population size
     tmax: time simulation will run for
     t: tmax x 1 numpy array for plotly graphs
-    pop: tmax x num_communities x 8 numpy array. Values for each population bin at the current time step
+    pop: tmax x num_communities x 8 numpy array. Values for each population 
+        bin at the current time step for each subcommunity in the simulation
+        population bins:
         - S: susceptible population
         - E: exposed population with the disease who aren't infectious
         - I: infectious population that isn't symptomatic
@@ -33,32 +35,53 @@ class Population():
         - TotI: total population with the disease
         - new_exposed: newly exposed individuals in the population
         - new_infectious: newly infected individuals in the population
-    community_params: values storing information about how the population is split into communities
+    community_params: values storing information about how the population is 
+        split into communities
         - num_communities (n): number of semi-isolated communities
-        - initial_community_sizes: n x 1 numpy array. Initial relative sizes of each community
-        - movement_matrix: n x n numpy array. Migration matrix for population movement between communities
+        - initial_community_sizes: n x 1 numpy array. Initial relative sizes of
+          each community
+        - movement_matrix: n x n numpy array. Migration matrix for population 
+          movement between communities
     sequencing_params: statistical parameters of the sequencing test being used
-        - true_positive_rate: proportion of sequences w/pathogen the test detects (also called statistical power)
-        - false_positive_rate: proportion of sequences w/no pathogen the test says has pathogen
+        - true_positive_rate: proportion of sequences w/pathogen the test detects 
+          (also called statistical power)
+        - false_positive_rate: proportion of sequences w/no pathogen the test 
+          says has pathogen
     blood_params: model-specific parameters for the BloodNet surveilance system
         - p_donation: probability that a donation-eligible person donates blood
-        - p_donation_to_bloodnet: probability a donation occurs at a BloodNet center
+        - p_donation_to_bloodnet: probability a donation occurs at a BloodNet
+          center
     threat_params: model-specific parameters for the ThreatNet surveilance system
-        - background_sick_rate: the proportion of people who are sick with a non-exponentially-growing pathogen
-        - p_sick_sequenced: probability that a sick person will get sequenced (both symptomatic w/pathogen of interest and sick regularly)
+        - background_sick_rate: the proportion of people who are sick with a 
+          non-exponentially-growing pathogen
+        - p_sick_sequenced: probability that a sick person will get sequenced 
+          (both symptomatic w/pathogen of interest and sick regularly)
     astute_params: pmodel-specific parameters for the AstuteNet surveilance system
         - p_hospitalized: the proportion of symptomatic people who go to a hospital
-        - p_doctor_detect: the probability that a doctor reports a symptomatic case as a new pathogen
-        - command_readiness: likelihood of a doctor's report being picked up by the system
+        - p_doctor_detect: the probability that a doctor reports a symptomatic 
+          case as a new pathogen
+        - command_readiness: likelihood of a report being picked up by the system
     SIR_params: list of model-specific parameters: 
         - beta: rate of infection
         - gamma: rate of recovery
-        - inf_time: time it takes for an exposed individual to become infectious
-        - sympt_time: time it takes for an infectious individual to become symptomatic
-        - p_asymp: probability that a symptomatic individual will not experience symptoms
+        - inf_time: time for an exposed individual to become infectious
+        - sympt_time: time for an infectious individual to become symptomatic
+        - p_asymp: probability an infected individual will not experience symptoms
         - mu: rate of death of symptomatic people
+    lockdown_params: currently determines how much infectivity is reduced after
+        pathogen detection
+        - scaled_infectivity: after a pathogen is detected in 
+          simulate_with_lockdown, infectivity is scaled by this parameter
+    detection_params: governs how quickly the surveilance methods lead to the 
+        detection of a pathogen
+        - threshold: each day, a surveilance system will return the likelihood
+          of at least one true positive. Threshold is the minimum likelihood
+          required to be confident there is at least one true positive
+        - time_delay: number of days the likelihood must be above the threshold
+          before a surveilance method "detects" a pathogen.
     """
-    def __init__(self, N = 100000, initial_infected = 1, tmax = 365, population_bins = 10, community_params = [1, [1], [1]]):
+
+    def __init__(self, N = 100000, initial_infected = 1, tmax = 365, population_bins = range(10), community_params = [1, [1], [1]]):
         self.N = N
         self.tmax = tmax
         self.community_params = community_params
@@ -66,11 +89,11 @@ class Population():
         self.NUM_BINS = len(population_bins)
 
         self.pop = np.zeros((self.tmax+1, num_communities+1, self.NUM_BINS))
-        self.pop[0][0] = [N-1, 0, 1, 0, 0, 0, 0, 1, 0, 0]
+        self.pop[0][0] = [N-initial_infected, 0, initial_infected, 0, 0, 0, 0, initial_infected, 0, initial_infected]
         for i in range(num_communities):
             infected_i = initial_infected if i == 0 else 0
             N_i = round(N*initial_community_sizes[i])
-            pop_i = [N_i-infected_i, 0, infected_i, 0, 0, 0, 0, infected_i, 0, 0]
+            pop_i = [N_i-infected_i, 0, infected_i, 0, 0, 0, 0, infected_i, 0, infected_i]
             self.pop[0][i+1] = pop_i
         
         self.t = np.linspace(0, tmax, tmax+1)
@@ -104,15 +127,16 @@ class Population():
 
     def simulate(self, step_type="stochastic"):
         """Carries out a simulation of the model with the stated parameters,
-        creating pop numpy matrices for each community that store information 
-        about the simulated population/communities for each time step
+        updating the pop numpy matrix and calculating probability of detection
+        for each programmed surveilance method each time step.
         
         ARGS:
         step_type: determines whether steps should be calculated deterministically or stochastically.
             - Valid inputs: "stochastic" or "deterministic"
 
         RETURNS:
-        None. Updates pop to reflect the result of the SIR simulation
+        None. Updates pop to reflect the result of the SIR simulation. Also
+        calculates likelihood of detection for each surveilance method.
         """
         if step_type not in ["stochastic","deterministic"]:
             print("Error: You have input an invalid type for step_type. Please input either 'stochastic' or 'deterministic'.")
@@ -120,9 +144,9 @@ class Population():
         for i in range(1, self.tmax+1):
             if step_type == "stochastic":
                 self.pop[i] = self.stochastic_SIRstep(self.pop, 
-                                                      self.SIR_params, 
-                                                      self.community_params, 
-                                                      i)    
+                                        self.SIR_params, 
+                                        self.community_params, 
+                                        i)    
             else:
                 self.pop[i] = self.deterministic_SIRstep(self.pop, 
                                                          self.SIR_params, 
@@ -136,7 +160,8 @@ class Population():
         return
 
     def deterministic_SIRstep(self, pop, params, community_params, t):
-        """Calculates one step of the SIR model. Steps are deterministic and fractional.
+        """Calculates one step of the SIR model. Steps are deterministic and
+        fractional. This function only works if there are no subcommunities.
         
         ARGS: 
         pop: 3D numpy array. Values for each population bin at the current time step
@@ -144,6 +169,7 @@ class Population():
             - E: exposed population with the disease who aren't infectious
             - I: infectious population that isn't symptomatic
             - Sy: symptomatic population
+            - Asy: asymptomatic population
             - R: recovered population
             - D: dead population
             - TotI: total population with the disease
@@ -154,7 +180,8 @@ class Population():
             - gamma: rate of recovery
             - inf_time: time it takes for an individual to become infectious
             - sympt_time: time it takes for an infectious individual to become symptomatic
-            - N: population size
+            - p_asymp: probability of an asymptomatic infection
+            - mu: death rate
         t: current time step
 
         RETURNS
@@ -162,28 +189,36 @@ class Population():
         Susceptible, Exposed, Infectious, Symptomatic, Recovered, E + I + S (Total Infections)
         """
         beta, gamma, inf_time, symp_time, p_asymp, mu = params
-        S, E, I, Sy, Asy, R, D, TotI = pop[t-1][0:8]
+        S, E, I, Sy, Asy, R, D, TotI = pop[t-1][0][0:8]
 
         # calculate changes in population bins
         new_exposed = (S*(I+Sy+Asy)*beta)/self.N
-        new_recovered = Sy*gamma
+        new_Sy_recovered = Sy*gamma
+        new_Asy_recovered = Asy*gamma
+        new_dead = Sy*mu
+        if new_dead + new_Sy_recovered > Sy:
+            new_dead = Sy - new_Sy_recovered # this prevents Sy from becoming negative
 
         if t < inf_time: # prevents indexing error
             new_infectious = 0
         else:
-            new_infectious = pop[t-inf_time][6]
+            new_infectious = pop[t-inf_time][0][8]
         if t < symp_time: # prevents indexing error
             new_symptomatic = 0
+            new_asymptomatic = 0
         else:
-            new_symptomatic = pop[t-symp_time][7]
+            new_symptomatic = pop[t-symp_time][0][9]*(1-p_asymp)
+            new_asymptomatic = pop[t-symp_time][0][9] - new_symptomatic
 
         # update population bins
         S1 = S-new_exposed
         E1 = E+new_exposed-new_infectious
-        I1 = I+new_infectious-new_symptomatic
-        Sy1 = Sy+new_symptomatic-new_recovered
-        R1 = R+new_recovered
-        TotI1 = E1 + I1 + Sy1
+        I1 = I+new_infectious-new_symptomatic-new_asymptomatic
+        Sy1 = Sy+new_symptomatic-new_Sy_recovered-new_dead
+        Asy1 = Asy+new_asymptomatic-new_Asy_recovered
+        R1 = R+new_Sy_recovered+new_Asy_recovered
+        D1 = D+new_dead
+        TotI1 = E1 + I1 + Sy1 + Asy1
         
         return [S1, E1, I1, Sy1, R1, TotI1, new_exposed, new_infectious]
 
@@ -201,13 +236,14 @@ class Population():
             - D: dead population
             - TotI: total population with the disease
             - new_exposed: newly exposed individuals in the population
-            - new_infectious: newly infected individuals in the population 
+            - new_infectious: newly infected individuals in the population
         params: list of model-specific parameters: 
             - beta: rate of infection
             - gamma: rate of recovery
             - inf_time: time it takes for an individual to become infectious
             - sympt_time: time it takes for an infectious individual to become symptomatic
-            - N: population size
+            - p_asymp: probability of an asymptomatic infection
+            - mu: death rate
         community_params: values storing information about how the population is split into communities
             - num_communities: number of semi-isolated communities
             - movement_matrix: migration matrix for population movement between communities
@@ -218,6 +254,12 @@ class Population():
         indexed as follows:
             - Susceptible, Exposed, Infectious, Symptomatic, Recovered, Total Infections (E + I + Sy)
         """
+        def first_non_zero_index(list):
+            for index, value in enumerate(list):
+                if value != 0:
+                    return index
+            return None
+
         beta, gamma, inf_time, symp_time, p_asymp, mu = params
         num_communities, initial_community_sizes, movement_matrix = community_params
         pop_t = np.zeros((num_communities+1, self.NUM_BINS))
@@ -255,24 +297,39 @@ class Population():
             R1 = R+new_Sy_recovered+new_Asy_recovered
             D1 = D+new_dead
             TotI1 = E1 + I1 + Sy1 + Asy1
-            pop_t[i+1] = [S1, E1, I1, Sy1, Asy1, R1, D1, TotI1, new_exposed, new_infectious]
-            pop_t[0] = [sum(x) for x in zip(pop_t[0], [S1, E1, I1, Sy1, Asy1, R1, D1, TotI1, new_exposed, new_infectious])]
+            pop_t[i+1] = [S1, E1, I1, Sy1, Asy1, R1, D1, TotI, new_exposed, new_infectious]
+            pop_t[0] = [sum(x) for x in zip(pop_t[0][0:10], [S1, E1, I1, Sy1, Asy1, R1, D1, TotI1, new_exposed, new_infectious])]
 
         # TODO: multiple communities is broken and probably can't be fixed unless I change inf_time and symp_time to rates
+        # TODO: instead try to look over past inf_time days, see how many people moved between groups, and then sample from distribution
+        #       of people who have been newly exposed/infected
 
-        pop_t_moved = np.dot(movement_matrix, pop_t[1:])
+        pop_t_moved = np.around(np.dot(movement_matrix, pop_t[1:]))
 
         output = np.vstack((pop_t[0], pop_t_moved))
 
         return output
 
     def plot_pop(self, pop, title, community_i=0):
-        """Given a pop numpy matrix, plots relevant information about the population
-        using matplotlib.
+        """Given a pop numpy matrix, plots relevant information about the given
+        subpopulation, depending on the value of community_i, using matplotlib.
         
         ARGS:
-        none.
-
+        pop: 3D numpy array. Values for each population bin at the current time step
+            - S: susceptible population
+            - E: exposed population with the disease who aren't infectious
+            - I: infectious population that isn't symptomatic
+            - Sy: symptomatic population
+            - R: recovered population
+            - D: dead population
+            - TotI: total population with the disease
+            - new_exposed: newly exposed individuals in the population
+            - new_infectious: newly infected individuals in the population 
+        title: A string used as the title for the graph being plotted.
+        community_i: instructions for which community to use for calculations. 
+          Default is total population. If community_i is 0, then the function 
+          will plot the entire population.
+        
         RETURNS:
         none. Plots a graph for the following parameters of pop over time:
             - S
@@ -301,6 +358,14 @@ class Population():
         plt.show()
 
     def plot_sim(self):
+        """Calls plot_pop on the entire population and each subpopulation.
+        
+        ARGS: 
+        none.
+
+        RETURNS:
+        none.
+        """
         num_communities, initial_community_sizes, movement_matrix = self.community_params
         for i in range(num_communities+1):
             self.plot_pop(self.pop, f'Community {i}', i)
@@ -309,28 +374,32 @@ class Population():
 
     def bloodnet(self, t, community_i=0):
         """Given a pop numpy matrix, calculates the probability of a bloodnet
-        surveilance approach detecting the pathogen within the population.
+        surveilance approach detecting the pathogen within the population at
+        a given time step.
 
-        BloodNet: every day, a certain proportion of people donate blood, which are then sequenced and
-        tested. Positive tests (indicating presence of a pathogen) occur at some rate even when there 
-        is no pathogen. When positive tests increase, the chance of a true positive goes up. At some
-        point, the chance of a true positive is high enough to reject the null hypothesis of no true 
-        positives.
+        BloodNet: every day, a certain proportion of people donate blood, 
+        which are then sequenced and tested. Positive tests (indicating 
+        presence of a pathogen) occur at some rate even when there is no 
+        pathogen. When positive tests increase, the chance of a true positive 
+        goes up. At some point, the chance of a true positive is high enough 
+        to reject the null hypothesis of no true positives.
         
         ARGS:
         t: time step value
-        community_i: instructions for which community to use for calculations. Default is total population (0).
+        community_i: instructions for which community to use for calculations. 
+          Default is total population. If community_i is 0, then the function 
+          will plot the entire population.
 
         RETURNS:
         None. For each time step, stores the probability of a threatnet model
         detecting the pathogen in self.blood_prob
         """
-        temp_pop = self.pop[:,0:,][:,community_i] # isolates the desired population data from the population tensor
+        subpop = self.pop[:,0:,][:,community_i] # isolates the desired population data from the population tensor
         p_donation, p_donation_to_bloodnet = self.blood_params
         true_positive_rate, false_positive_rate = self.sequencing_params
 
-        don_pop = self.N-temp_pop[t][3]-temp_pop[t][6]
-        infected_pop = temp_pop[t][1]+temp_pop[t][2]+temp_pop[t][4]
+        don_pop = self.N-subpop[t][3]-subpop[t][6]
+        infected_pop = subpop[t][1]+subpop[t][2]+subpop[t][4]
         num_samples = np.random.binomial(don_pop, p_donation * p_donation_to_bloodnet)
 
         if num_samples == 0:
@@ -353,7 +422,7 @@ class Population():
 
     def bloodnet_community(self, t):
         """Calls the bloodnet detection model on each sub-community
-        of the population.
+        of the population at a given time step.
         
         ARGS:
         none.
@@ -365,14 +434,14 @@ class Population():
         num_communities, initial_community_sizes, movement_matrix = self.community_params
 
         for i in range(num_communities):
-            temp_pop = self.pop[:,0:,][:,i] # isolates the desired population data from the population tensor
-            N_i = sum(temp_pop[t][0:7])
+            subpop = self.pop[:,0:,][:,i] # isolates the desired population data from the population tensor
+            N_i = sum(subpop[t][0:7])
 
             p_donation, p_donation_to_bloodnet = self.blood_params
             true_positive_rate, false_positive_rate = self.sequencing_params
 
-            don_pop = N_i-temp_pop[t][3]-temp_pop[t][6]
-            infected_pop = temp_pop[t][1]+temp_pop[t][2]+temp_pop[t][4]
+            don_pop = N_i-subpop[t][3]-subpop[t][6]
+            infected_pop = subpop[t][1]+subpop[t][2]+subpop[t][4]
             num_samples = np.random.binomial(don_pop, p_donation * p_donation_to_bloodnet)
 
             if num_samples == 0:
@@ -394,71 +463,81 @@ class Population():
 
     def threatnet(self, t, community_i=0):
         """Given a pop numpy matrix, calculates the probability of a threatnet
-        surveilance approach detecting the pathogen within the population.
+        surveilance approach detecting the pathogen within the population at
+        a given time step.
 
-        ThreatNet: symptomatic people and people sick with other illnesses visit hospitals with 
-        a fixed probability, some of whom will get sequenced. Positive tests (indicating presence 
-        of a pathogen) occur at some rate even when there is no pathogen. When positive tests 
-        increase, the chance of a true positive goes up. At some point, the chance of a true 
-        positive is high enough to reject the null hypothesis of no true positives.
+        ThreatNet: symptomatic people and people sick with other illnesses 
+        visit hospitals with a fixed probability, some of whom will get 
+        sequenced. Positive tests (indicating presence of a pathogen) occur at 
+        some rate even when there is no pathogen. When positive tests increase, 
+        the chance of a true positive goes up. At some point, the chance of a 
+        true positive is high enough to reject the null hypothesis of no true 
+        positives.
         
         ARGS:
-        community_i: instructions for which community to use for calculations. Default is total population
+        t: time step value
+        community_i: instructions for which community to use for calculations. 
+          Default is total population. If community_i is 0, then the function 
+          will plot the entire population.
 
         RETURNS:
         None. For each time step, stores the probability of a threatnet model
         detecting the pathogen in self.threat_prob
         """
-        temp_pop = self.pop[:,0:,][:,community_i] # isolates the desired population data from the population tensor
+        subpop = self.pop[:,0:,][:,community_i] # isolates the desired population data from the population tensor
         background_sick_rate, p_hospitalized, p_hospital_sequenced = self.threat_params
         true_positive_rate, false_positive_rate = self.sequencing_params
 
-        Sy = temp_pop[:,3]
-        D = temp_pop[:,6]
+        Sy = subpop[:,3]
+        other_positives = subpop[:,2] + subpop[:,4]
+        D = subpop[:,6]
 
         num_sick_false = (self.N - Sy[t] - D[t]) * background_sick_rate
         num_sick_true = Sy[t]
-        num_sequenced_false = np.random.binomial(num_sick_false, p_hospitalized*p_hospital_sequenced)
-        num_sequenced_true = np.random.binomial(num_sick_true, p_hospitalized*p_hospital_sequenced)
-        num_sequenced = num_sequenced_false + num_sequenced_true
+        num_sick = num_sick_false + num_sick_true
+        p_coinfected = (other_positives[t])/self.N * ((self.N - Sy[t] - D[t]) * background_sick_rate)/self.N
+        num_sequenced = np.random.binomial(num_sick, p_hospitalized*p_hospital_sequenced)
 
-        # If 10% of the population is sick, assume the pathogen has been detected.
-        # Added this in to speed up the computation, it is definitely an assumption though
         x = np.arange(0, num_sequenced+1)
 
         p_x_positives_null = binom.sf(x, num_sequenced, false_positive_rate)
 
-        # p_infected = (Sy[t])/(num_sick_true+num_sick_false) #probability one person is infected out of the group of sequenced people
-        # p_clean = 1 - p_infected
+        # print(p_coinfected, Sy[t]/num_sick)
+        p_infected = Sy[t]/num_sick + p_coinfected #probability one person is infected out of the group of sequenced people
+        p_clean = 1 - p_infected
         if num_sequenced == 0:
             p_positive = 0
         else:
-            p_positive = true_positive_rate*(num_sequenced_true/num_sequenced) + false_positive_rate*(num_sequenced_false/num_sequenced) #probability a sequencing test will return a positive result
+            p_positive = true_positive_rate*(p_infected) + false_positive_rate*(p_clean) #probability a sequencing test will return a positive result
         num_positive_tests = np.random.binomial(num_sequenced, p_positive)
 
+        # print(num_positive_tests, )
         self.threat_prob[t] = 1-p_x_positives_null[num_positive_tests]
 
     def astutenet(self, t, community_i=0):
-        """Given a pop numpy matrix, calculates the probability of an astute doctor
-        successfully discovering and reporting a novel pathogen.
+        """Given a pop numpy matrix, calculates the probability of an astute 
+        doctor successfully discovering and reporting a novel pathogen.
 
-        When people get sick, they sometimes go to the hospital. These people are
-        seen by doctors, and if enough people have novel symptoms then an astute
-        doctor might realize there is something going on. If the doctor raises
-        the alarm, then there is a chance every day that authorities will act
-        on the alarm, initiating some countermeasures.
+        When people get sick, they sometimes go to the hospital. These people 
+        are seen by doctors, and if enough people have novel symptoms then an 
+        astute doctor might realize there is something going on. If the doctor 
+        raises the alarm, then there is a chance every day that authorities 
+        will act on the alarm, initiating some countermeasures.
 
         ARGS:
-        community_i: instructions for which community to use for calculations. Default is total population
+        t: time step value
+        community_i: instructions for which community to use for calculations. 
+          Default is total population. If community_i is 0, then the function 
+          will plot the entire population.
 
         RETURNS:
         None. For each time step, stores the probability of a threatnet model
         detecting the pathogen in self.astute_prob
         """
         p_hospitalized, p_doctor_detect, command_readiness = self.astute_params
-        temp_pop = self.pop[:,0:,][:,community_i] # isolates the desired population data from the population tensor
+        subpop = self.pop[:,0:,][:,community_i] # isolates the desired population data from the population tensor
 
-        Sy = temp_pop[:,3]
+        Sy = subpop[:,3]
 
         num_symp_hospitalized = np.random.binomial(Sy[t], p_hospitalized)
         num_hospital_reports = np.random.binomial(num_symp_hospitalized, p_doctor_detect)
@@ -476,7 +555,7 @@ class Population():
 
     def wastenet(self, t, community_i=0):
         """Given a pop numpy matrix, calculates the probability of a wastewater
-        sequencing system detecting a novel pathogen.
+        sequencing system detecting a novel pathogen at a given time step.
 
         Every day, wastewater is collected from filtration plants. This wastewater
         contains some viral particles from fecal shedding, which is then detected
@@ -486,15 +565,16 @@ class Population():
         positive is high enough to reject the null hypothesis of no true positives.
 
         ARGS:
+        t: time step value.
         community_i: instructions for which community to use for calculations. Default is total population
 
         RETURNS:
         none.
         """
-        temp_pop = self.pop[:,0:,][:,community_i] # isolates the desired population data from the population tensor
+        subpop = self.pop[:,0:,][:,community_i] # isolates the desired population data from the population tensor
         true_positive_rate, false_positive_rate = self.sequencing_params
 
-        infected_pop = sum(temp_pop[t][1:5]) # everyone who could be fecal shedding
+        infected_pop = sum(subpop[t][1:5]) # everyone who could be fecal shedding
         
 
         return
@@ -504,7 +584,7 @@ class Population():
         return
 
     def plot_net(self):
-        """Given a pop numpy matrix, calls different net methods and plots the
+        """Given a pop numpy matrix and likelihoods of detection, plots the
         probability of each method detecting the pathogen over time.
         
         ARGS:
@@ -516,12 +596,12 @@ class Population():
         nrows, nstacks, ncols = self.pop.shape
         num_communities = nstacks-1
         
-        temp_pop = self.pop[:,0:,][:,0] # isolates the aggregate population data from the population tensor
+        subpop = self.pop[:,0:,][:,0] # isolates the aggregate population data from the population tensor
         p_inf = np.zeros(nrows) # p_inf: percent of people who are not susceptible (E, I, Sy, or R)
         p_symp = np.zeros(nrows)
         for i in range(nrows):
-            p_inf[i] = (temp_pop[i][1]+temp_pop[i][2])/sum(temp_pop[0][0:5])
-            p_symp[i] = (temp_pop[i][3])/sum(temp_pop[0][0:5])
+            p_inf[i] = (subpop[i][1]+subpop[i][2])/sum(subpop[0][0:5])
+            p_symp[i] = (subpop[i][3])/sum(subpop[0][0:5])
 
         # Astute Doctor Total Model
         plt.figure()
@@ -722,10 +802,11 @@ class Population():
 
     def lockdowm_param_tester(self, num_runs=5):
         """Runs multiple lockdown SIR simulations varying percent_reduced_infectivity,
-        then determines how fast each surveilance method detects the pathogen. Then,
-        calls simulate_with_lockdown to estimate the change in deaths between scenarios
-        wtih each surveilance method implemented, and visualizes deaths for each model
-        over the percent_reduced_infectivity space [0,1].
+        then determines how fast each surveilance method detects the pathogen. 
+        Then, calls simulate_with_lockdown to estimate the change in deaths 
+        between scenarios with each surveilance method implemented, and 
+        visualizes deaths for each model over the percent_reduced_infectivity 
+        space [0,1].
 
         ARGS:
         num_rums: number of runs to multiplex and average over 
@@ -737,7 +818,7 @@ class Population():
         V = 20
         lockdown_deaths = np.zeros((V, 3)) # we have three nets to test
         for i in range(V):
-            self.set_lockdown_params((self.lockdown_params[0], i/V))
+            self.set_lockdown_params((i/V))
             for j in range(num_runs):
                 lockdown_dict_i = self.simulate_with_lockdown()
                 for key in lockdown_dict_i:
@@ -775,20 +856,22 @@ class Population():
         creating pop numpy matrices for each community that store information 
         about the simulated population/communities for each time step. Also
         tracks if surveilance methods have detected the pathogen. When a method
-        detects a pathogen, the simulation forks: in one simulation, the pathogen
-        is "detected" and infectivity is reduced. In the other, the simulation
-        carries on as normal.
+        detects a pathogen, the simulation forks: in one simulation, the 
+        pathogen is "detected" and infectivity is reduced. In the other, the 
+        simulation carries on as normal, continuing to check for forks.
         
         ARGS:
-        step_type: determines whether steps should be calculated deterministically or stochastically.
+        step_type: determines whether steps should be calculated 
+          deterministically or stochastically.
             - Valid inputs: "stochastic" or "deterministic"
-        vaccine_deploy_date: number of days after detection that a vaccine is deployed, reducing the death rate
+        vaccine_deploy_date: number of days after detection that a vaccine is 
+          deployed, reducing the death rate
 
         RETURNS:
-        forked_dict: a dictionary of tuples. Each tuple contains a simulated population
-        and the day the pathogen was detected and the simulation was forked. The key of
-        each value is the surveilance method that detected the pathogen and thus forked
-        the simulation.
+        forked_dict: a dictionary of tuples. Each tuple contains a simulated 
+        population and the day the pathogen was detected and the simulation was
+        forked. The key of each value is the surveilance method that detected
+        the pathogen and thus forked the simulation.
         """
         prob_list = [["bloodnet", self.blood_prob], 
                      ["astutenet", self.astute_prob], 
@@ -815,13 +898,14 @@ class Population():
         return forked_dict
     
     def forked_simulate(self, pop, vaccine_deploy_date, step_type="stochastic", start=1):
-        """Runs a forked simulation of the Population's self.pop after a pathogen has
-        been detected. This simulation has reduced infectivity from quarantine mandates,
-        and after vaccine_deploy_date days will have 99% reduced death rate from deployment
-        of vaccines.
+        """Runs a forked simulation of the Population's self.pop after a 
+        pathogen has been detected. This simulation has reduced infectivity
+        from quarantine mandates, and after vaccine_deploy_date days will 
+        have 99% reduced death rate from deployment of vaccines.
 
         ARGS:
-        pop: 3D numpy array. Values for each population bin at the current time step
+        pop: 3D numpy array. Values for each population bin at the current 
+          time step
             - S: susceptible population
             - E: exposed population with the disease who aren't infectious
             - I: infectious population that isn't symptomatic
@@ -831,8 +915,10 @@ class Population():
             - TotI: total population with the disease
             - new_exposed: newly exposed individuals in the population
             - new_infectious: newly infected individuals in the population
-        vaccine_deploy_date: number of days after detection that a vaccine is deployed, reducing the death rate
-        step_type: determines whether steps should be calculated deterministically or stochastically.
+        vaccine_deploy_date: number of days after detection that a vaccine is 
+          deployed, reducing the death rate
+        step_type: determines whether steps should be calculated 
+          deterministically or stochastically.
             - Valid inputs: "stochastic" or "deterministic"
         start: the day at which the forked simulation should start
 
@@ -843,7 +929,7 @@ class Population():
             print("Error: You have input an invalid type for step_type. Please input either 'stochastic' or 'deterministic'.")
             return
         
-        p_stay_at_home, scaled_infectivity = self.lockdown_params
+        scaled_infectivity = self.lockdown_params
         forked_SIR_params = list(copy.deepcopy(self.SIR_params))
         forked_SIR_params[0] *= scaled_infectivity
 
@@ -861,9 +947,9 @@ class Population():
         return pop
     
     def plot_lockdown_simulations(self):
-        """Calls simulate_with_lockdown, then plots the control case (no detection)
-        against each forked detection simulation. Also prints the following statistics
-        for each plot:
+        """Calls simulate_with_lockdown, then plots the control case 
+        (no detection) against each forked detection simulation. Also prints
+        the following statistics for each plot:
             - Model name
             - Day of detection
             - Deaths before detection
@@ -887,6 +973,23 @@ class Population():
         return forked_dict
     
     def one_day_market_shaping(self, step_type="stochastic", vaccine_deploy_date=150):
+        """Similar to simulate. At each time step, step forward the SIR model.
+        For the first 200 steps, also split the model into two "forks:" one
+        where the pathogen is detected on that time step, and one that continues
+        as normal. The model then returns a list of simulated populations where
+        the pathogen was detected at different points within the first 200 days.
+
+        ARGS:
+        step_type: determines whether steps should be calculated deterministically 
+          or stochastically.
+            - Valid inputs: "stochastic" or "deterministic"
+        vaccine_deploy_date: the number of days after the pathogen is detected
+          after which the vaccine can be deployed, preventing deaths.
+
+        RETURNS:
+        forked_list: a list of populations. The index of the population in the list
+        is the day of the simulation that the pathogen was discovered.
+        """
         forked_list = []
 
         if step_type not in ["stochastic","deterministic"]:
@@ -903,7 +1006,19 @@ class Population():
 
         return forked_list
     
-    def plot_one_day_market_shaping(self):
+    def one_day_market_shaping_costs(self):
+        """Calls one_day_market_shaping and calculates the cost saved for
+        detecting a pathogen one day sooner.
+
+        ARGS:
+        none.
+
+        RETURNS:
+        net_cost_saved_list: a list that contains cost savings for detecting
+        a pathogen one day sooner. For each index, the stored value is the 
+        cost estimate saved by detecting the pathogen on the index's day, 
+        compared to detecting the pathogen on the next day.
+        """
         VSL = 1.14 * 10**7
         min, max = 0, 200
         forked_list = self.one_day_market_shaping()

@@ -9,7 +9,7 @@ tmax = 1000 # total number of time steps
 N = 332000000 # population size
 initial_infected = 1 # TODO: Allow the infection to start in multiple communities
 population_bins = ["S", "E", "I", "Sy", "Asy", "R", "D", "TotI", "new_exposed", "new_inf"]
-
+ 
 #community_params: num_communities, initial_community_sizes movement_matrix
 initial_community_sizes = [1]
 num_communities = len(initial_community_sizes)
@@ -24,16 +24,16 @@ movement_matrix = [1]
 
 community_params = (num_communities, initial_community_sizes, movement_matrix)
 
-#lockdown_params: p_stay_at_home, scaled_infectivity
-lockdown_params = (0, 0.2)
+#lockdown_params: scaled_infectivity
+lockdown_params = (0.2)
 
 #detection_params: threshold, time_delay
 detection_params = (0.99, 4)
 
 #SIR_params: beta, gamma, inf_time, symp_time, p_asymp, mu
-SIR_params = (0.35, 1/21, 4, 21, 0.01, 0.1)
+SIR_params = (0.32, 0.125, 4, 2, 0.1, 0.01)
 
-p_hospitalized = 0.08 # hospitalization rate depends upon the severity of the virus
+p_hospitalized = 0.08 # hospitalization rate depends upon the severity of the virus. This is calculated for 
 
 #   IMMUTABLE PARAMS, FINE-TUNED FOR ACCURACY
 
@@ -60,44 +60,55 @@ threat_params = (background_sick_rate, p_hospitalized, 0.2)
 #   command_readiness: likelihood of a doctor's report leading to a substantial pandemic response
 astute_params = (p_hospitalized, 0.2, 0.05)
 
+
+
+# EXAMPLE CODE FOR RUNNING THE SIMULATION:
+
+
 model_population = Population(N, initial_infected, tmax, population_bins, community_params)
 model_population.set_all_params(sequencing_params, blood_params, threat_params, astute_params, SIR_params, lockdown_params, detection_params)
 
-# model_population.simulate()
+model_population.simulate()
+
+model_population.plot_sim()
 
 # model_population.plot_net()
 
 # for i in range(5):
 #     model_population.plot_lockdown_simulations()
 
-t_run = 200
-average_one_day = np.zeros((t_run,1))
-num_runs = 50
+# print(model_population.test_nets(10))
 
-for i in range(num_runs):
-    print(i)
-    one_day_i = model_population.plot_one_day_market_shaping()
-    average_one_day = np.add(average_one_day, one_day_i)
 
-average_one_day = np.divide(average_one_day, num_runs)
-average_one_day = np.round(average_one_day, 2)
 
-np.set_printoptions(threshold=np.inf)
-for i in range(len(average_one_day)):
-    print(f'Day {i}: {average_one_day[i]}')
+# t_run = 200
+# average_one_day = np.zeros((t_run,1))
+# num_runs = 50
 
-infectious = np.divide(model_population.pop[:,:,2][:,0][0:200], np.amax(model_population.pop[:,:,2][:,0][0:200])/np.amax(average_one_day))
-dead = np.divide(model_population.pop[:,:,6][:,0][0:200], np.amax(model_population.pop[:,:,6][:,0][0:200])/np.amax(average_one_day))
+# for i in range(num_runs):
+#     print(i)
+#     one_day_i = model_population.one_day_market_shaping_costs()
+#     average_one_day = np.add(average_one_day, one_day_i)
 
-plt.plot(range(t_run), np.multiply(average_one_day, 1), 'orange', label='Cost Estimate $B')
-plt.plot(range(t_run), infectious, 'red', label='Infectious population')
-plt.plot(range(t_run), dead, 'black', label='Dead population')
-plt.legend()
-plt.xlabel("Day of Detection")
-plt.ylabel("Cost Estimate ($B) of One Day Later")
-plt.show()
+# average_one_day = np.divide(average_one_day, num_runs)
+# average_one_day = np.round(average_one_day, 2)
 
-# model_population.plot_sim(model_population.pop, "Epidemiological Model, Total Population Over Time")
+# np.set_printoptions(threshold=np.inf)
+# for i in range(len(average_one_day)):
+#     print(f'Day {i}: {average_one_day[i]}')
+
+# infectious = np.divide(model_population.pop[:,:,2][:,0][0:200], np.amax(model_population.pop[:,:,2][:,0][0:200])/np.amax(average_one_day))
+# dead = np.divide(model_population.pop[:,:,6][:,0][0:200], np.amax(model_population.pop[:,:,6][:,0][0:200])/np.amax(average_one_day))
+
+# plt.plot(range(t_run), np.multiply(average_one_day, 1), 'orange', label='Cost Estimate $B')
+# plt.plot(range(t_run), infectious, 'red', label='Infectious population')
+# plt.plot(range(t_run), dead, 'black', label='Dead population')
+# plt.legend()
+# plt.xlabel("Day of Detection")
+# plt.ylabel("Cost Estimate ($B) of One Day Later")
+# plt.show()
+
+
 
 # model_population.sequencing_param_tester(3)
 
@@ -105,7 +116,13 @@ plt.show()
 
 # model_population.lockdowm_param_tester()
 
-# List of Model Params:
+
+
+
+
+
+
+# LIST OF PARAMETERS:
 
 # pathogen_params: 0 -> infinity
 # beta: [0,inf]
