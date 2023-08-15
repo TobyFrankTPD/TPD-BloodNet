@@ -10,9 +10,6 @@ import pandas as pd
 from functools import reduce
 import copy
 
-# TODO:
-#   - add somewhere saying inf_time and symp_time can't be 0
-
 class Population():
     """Defines a population of individuals during a novel pandemic. Encodes 
     relevant parameters and has a number of functions for SIR modeling and 
@@ -146,7 +143,7 @@ class Population():
                 self.pop[i] = self.stochastic_SIRstep(self.pop, 
                                         self.SIR_params, 
                                         self.community_params, 
-                                        i)    
+                                        i)
             else:
                 self.pop[i] = self.deterministic_SIRstep(self.pop, 
                                                          self.SIR_params, 
@@ -254,11 +251,6 @@ class Population():
         indexed as follows:
             - Susceptible, Exposed, Infectious, Symptomatic, Recovered, Total Infections (E + I + Sy)
         """
-        def first_non_zero_index(list):
-            for index, value in enumerate(list):
-                if value != 0:
-                    return index
-            return None
 
         beta, gamma, inf_time, symp_time, p_asymp, mu = params
         num_communities, initial_community_sizes, movement_matrix = community_params
@@ -300,11 +292,52 @@ class Population():
             pop_t[i+1] = [S1, E1, I1, Sy1, Asy1, R1, D1, TotI, new_exposed, new_infectious]
             pop_t[0] = [sum(x) for x in zip(pop_t[0][0:10], [S1, E1, I1, Sy1, Asy1, R1, D1, TotI1, new_exposed, new_infectious])]
 
-        # TODO: multiple communities is broken and probably can't be fixed unless I change inf_time and symp_time to rates
         # TODO: instead try to look over past inf_time days, see how many people moved between groups, and then sample from distribution
         #       of people who have been newly exposed/infected
 
-        pop_t_moved = np.around(np.dot(movement_matrix, pop_t[1:]))
+        pop_t_moved = np.dot(movement_matrix, pop_t[1:])
+
+        # num_E_moved = np.zeros((num_communities, 1))
+        # num_I_moved = np.zeros((num_communities, 1))
+        # pop_new_E = pop[max(0,t-inf_time):t, 1:num_communities+1, 8]
+        # pop_new_I = pop[max(0,t-symp_time):t, 1:num_communities+1, 9]
+
+        # for i in range(num_communities):
+        #     num_E_moved[i] = pop_t_moved[i, 1] - pop_t[i+1, 1]
+        #     num_I_moved[i] = pop_t_moved[i, 2] - pop_t[i+1, 2]
+
+        # # The rest is hard-coded for 2 subcommunities, and should be modified before running the sim with 3 or more.
+        # # This will likely require a decent amount of work.
+        # direction_of_migration_E = 1
+        # direction_of_migration_I = 1
+        # leaving_E_pool = pop_new_E[:, 1]
+        # arriving_E_pool = pop_new_E[:, 0]
+        # leaving_I_pool = pop_new_I[:, 1]
+        # arriving_I_pool = pop_new_I[:, 0]
+
+        # if num_E_moved[0] < 0:
+        #     direction_of_migration_E = -1
+        #     leaving_E_pool = pop_new_E[:, 1]
+        #     arriving_E_pool = pop_new_E[:, 0]
+        # if num_I_moved[0] < 0:
+        #     direction_of_migration_I = -1
+        #     leaving_I_pool = pop_new_I[:, 0]
+        #     arriving_I_pool = pop_new_I[:, 1]
+            
+        # for i in range(abs(int(num_E_moved[0][0]))):
+        #     first_exp_time = first_non_zero_index(leaving_E_pool)
+        #     leaving_E_pool[first_exp_time] -= 1*direction_of_migration_E
+        #     arriving_E_pool[first_exp_time] += 1*direction_of_migration_E
+        
+        # for i in range(abs(int(num_I_moved[0][0]))):
+        #     first_exp_time = first_non_zero_index(leaving_I_pool)
+        #     leaving_I_pool[first_exp_time] -= 1*direction_of_migration_I
+        #     arriving_I_pool[first_exp_time] += 1*direction_of_migration_I
+
+        # if direction_of_migration_E == 1:
+        #     final_pop_t_moved = np.hstack((pop_t_moved, [[arriving_E_pool[0]], [leaving_E_pool[0]]], [[arriving_I_pool[0]], [leaving_I_pool[0]]]))
+        # else:
+        #     final_pop_t_moved = np.hstack((pop_t_moved, [[leaving_E_pool[0]], [arriving_E_pool[0]]], [[leaving_I_pool[0]], [arriving_I_pool[0]]]))
 
         output = np.vstack((pop_t[0], pop_t_moved))
 
@@ -407,8 +440,6 @@ class Population():
         else:
             x = np.arange(0, num_samples+1)
 
-            # TODO: the test below assumes that the null hypothesis is 0 true positive tests. 
-            #   In reality, there are true positives without an exponentially growing pathogen
             p_x_positives_null = binom.sf(x, num_samples, false_positive_rate) #probability distribution of obsering at least x positive results given no true positives
 
             p_infected = infected_pop/don_pop #probability one person is infected
@@ -449,8 +480,6 @@ class Population():
             else:
                 x = np.arange(0, num_samples+1)
 
-                # TODO: the test below assumes that the null hypothesis is 0 true positive tests. 
-                #   In reality, there are true positives without an exponentially growing pathogen
                 p_x_positives_null = binom.sf(x, num_samples, false_positive_rate) #probability distribution of obsering at least x positive results given no true positives
 
                 p_infected = infected_pop/don_pop #probability one person is infected
@@ -571,16 +600,6 @@ class Population():
         RETURNS:
         none.
         """
-        subpop = self.pop[:,0:,][:,community_i] # isolates the desired population data from the population tensor
-        true_positive_rate, false_positive_rate = self.sequencing_params
-
-        infected_pop = sum(subpop[t][1:5]) # everyone who could be fecal shedding
-        
-
-        return
-    
-    def aerosolnet(self):
-
         return
 
     def plot_net(self):
@@ -699,7 +718,6 @@ class Population():
         for i in range(num_runs):
             self.simulate()
             blood_prob = self.blood_prob
-            # community_blood_probs = self.bloodnet_community()
             astute_prob = self.astute_prob
             threat_prob = self.threat_prob
 

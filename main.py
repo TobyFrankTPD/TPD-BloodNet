@@ -33,15 +33,15 @@ detection_params = (0.99, 4)
 #SIR_params: beta, gamma, inf_time, symp_time, p_asymp, mu
 SIR_params = (0.32, 0.125, 4, 2, 0.1, 0.01)
 
-p_hospitalized = 0.08 # hospitalization rate depends upon the severity of the virus. This is calculated for 
-
-#   IMMUTABLE PARAMS, FINE-TUNED FOR ACCURACY
+p_hospitalized = 0.08 # hospitalization rate depends upon the severity of the virus. This is currently fine-tuned for the US.
 
 #sequencing_params: true_positive_rate, false_positive_rate
 #   Note: false_positive_rate includes samples with no pathogen detected as having a pathogen, and samples with a pathogen but not the pathogen that is exponentially growing
 sequencing_params = (0.99, 0.01)
 #true_positive_rate: proportion of sequences w/pathogen the test detects (also called statistical power)
 #false_positive_rate: proportion of sequences w/out pathogen of interest that the test says has a pathogen
+
+#   IMMUTABLE PARAMS, FINE-TUNED FOR ACCURACY
 
 #blood_params: p_donation, p_donation_to_bloodnet
 p_donation = 16/330/365 #proportion of people who donate blood each day (https://www.umms.org/-/media/files/ummc/community/blood-facts)
@@ -115,33 +115,3 @@ model_population.plot_sim()
 # model_population.SIR_param_tester()
 
 # model_population.lockdowm_param_tester()
-
-
-
-
-
-
-
-# LIST OF PARAMETERS:
-
-# pathogen_params: 0 -> infinity
-# beta: [0,inf]
-# gamma: [0,inf]
-# inf_time: [0, inf]
-# symp_time: [0, inf]
-
-# all other params: 0 -> 1
-# true_positive_rate: [0,1]
-# false_positive_rate: [0,1]
-# p_donation: [0,1]
-# p_donation_to_bloodnet: [0,1]
-# background_sick_rate [0,1]
-# p_hospitalized: [0,1]
-# p_hospital_sequenced: [0,1]
-# p_doctor_detect: [0,1]
-# command_readiness: [0,1]
-
-# community params: N/A
-# num_communitites (n): [0,N]
-# initial_community_sizes: n x 1 numpy array
-# movement_matrix: n x n numpy array
